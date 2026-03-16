@@ -1,0 +1,31 @@
+{
+  "profile_id": "medieval-textual",
+  "label": "Manuscrit médiéval textuel",
+  "language_hints": ["la", "fr-moyen", "oc"],
+  "script_type": "gothic",
+  "active_layers": [
+    "ocr_diplomatic",
+    "ocr_normalized",
+    "translation_fr",
+    "translation_en",
+    "summary",
+    "scholarly_commentary",
+    "public_commentary",
+    "material_notes",
+    "uncertainty"
+  ],
+  "prompt_templates": {
+    "primary": "prompts/medieval-textual/primary_v1.txt",
+    "translation": "prompts/medieval-textual/translation_v1.txt",
+    "commentary": "prompts/medieval-textual/commentary_v1.txt"
+  },
+  "uncertainty_config": {
+    "flag_below": 0.45,
+    "min_acceptable": 0.3
+  },
+  "export_config": {
+    "mets": true,
+    "alto": true,
+    "tei": false
+  }
+}

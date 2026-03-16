@@ -1,0 +1,26 @@
+{
+  "profile_id": "early-modern-print",
+  "label": "Imprimé de la période moderne",
+  "language_hints": ["la", "fr", "it", "de"],
+  "script_type": "print",
+  "active_layers": [
+    "ocr_diplomatic",
+    "ocr_normalized",
+    "translation_fr",
+    "summary",
+    "public_commentary",
+    "uncertainty"
+  ],
+  "prompt_templates": {
+    "primary": "prompts/early-modern-print/primary_v1.txt"
+  },
+  "uncertainty_config": {
+    "flag_below": 0.3,
+    "min_acceptable": 0.2
+  },
+  "export_config": {
+    "mets": true,
+    "alto": true,
+    "tei": false
+  }
+}

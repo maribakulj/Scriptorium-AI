@@ -1,0 +1,34 @@
+{
+  "profile_id": "medieval-illuminated",
+  "label": "Manuscrit médiéval enluminé",
+  "language_hints": ["la", "fr-moyen"],
+  "script_type": "caroline",
+  "active_layers": [
+    "image",
+    "ocr_diplomatic",
+    "ocr_normalized",
+    "translation_fr",
+    "translation_en",
+    "summary",
+    "scholarly_commentary",
+    "public_commentary",
+    "iconography_detection",
+    "material_notes",
+    "uncertainty"
+  ],
+  "prompt_templates": {
+    "primary": "prompts/medieval-illuminated/primary_v1.txt",
+    "translation": "prompts/medieval-illuminated/translation_v1.txt",
+    "commentary": "prompts/medieval-illuminated/commentary_v1.txt",
+    "iconography": "prompts/medieval-illuminated/iconography_v1.txt"
+  },
+  "uncertainty_config": {
+    "flag_below": 0.4,
+    "min_acceptable": 0.25
+  },
+  "export_config": {
+    "mets": true,
+    "alto": true,
+    "tei": false
+  }
+}

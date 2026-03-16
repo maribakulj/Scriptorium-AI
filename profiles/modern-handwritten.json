@@ -1,0 +1,25 @@
+{
+  "profile_id": "modern-handwritten",
+  "label": "Document manuscrit moderne",
+  "language_hints": ["fr", "en", "de"],
+  "script_type": "cursive",
+  "active_layers": [
+    "ocr_diplomatic",
+    "ocr_normalized",
+    "summary",
+    "public_commentary",
+    "uncertainty"
+  ],
+  "prompt_templates": {
+    "primary": "prompts/modern-handwritten/primary_v1.txt"
+  },
+  "uncertainty_config": {
+    "flag_below": 0.5,
+    "min_acceptable": 0.35
+  },
+  "export_config": {
+    "mets": true,
+    "alto": true,
+    "tei": false
+  }
+}
