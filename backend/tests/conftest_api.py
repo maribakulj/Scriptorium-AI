@@ -12,6 +12,7 @@ Stratégie :
 # 1. stdlib
 import pytest
 import pytest_asyncio
+from unittest.mock import AsyncMock, patch
 
 # 2. third-party
 from httpx import ASGITransport, AsyncClient
@@ -49,8 +50,13 @@ async def async_client(db_session: AsyncSession):
         yield db_session
 
     app.dependency_overrides[get_db] = _override_get_db
-    async with AsyncClient(
-        transport=ASGITransport(app=app), base_url="http://test"
-    ) as client:
-        yield client
+    # Les background tasks (execute_corpus_job, execute_page_job) créent leur
+    # propre session via async_session_factory. On les neutralise pour éviter
+    # qu'elles tentent de se connecter à la BDD réelle pendant les tests d'API.
+    with patch("app.api.v1.jobs.execute_corpus_job", AsyncMock(return_value=None)), \
+         patch("app.api.v1.jobs.execute_page_job", AsyncMock(return_value=None)):
+        async with AsyncClient(
+            transport=ASGITransport(app=app), base_url="http://test"
+        ) as client:
+            yield client
     app.dependency_overrides.clear()

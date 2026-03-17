@@ -1,28 +1,29 @@
 """
 Endpoints de gestion des jobs de traitement (R10 — préfixe /api/v1/).
 
-POST /api/v1/corpora/{id}/run         → crée un job par page du corpus
-POST /api/v1/pages/{id}/run           → crée un job pour une page
+POST /api/v1/corpora/{id}/run         → crée un job par page + lance le pipeline en fond
+POST /api/v1/pages/{id}/run           → crée un job + lance le pipeline en fond
 GET  /api/v1/jobs/{job_id}            → état du job
 POST /api/v1/jobs/{job_id}/retry      → relance un job FAILED
 
-Règle : les jobs sont créés en BDD et retournent immédiatement.
-Le pipeline réel (analyzer) sera branché en Session C.
+Le pipeline est exécuté via FastAPI BackgroundTasks (pas de Celery, pas de threading manuel).
 """
 # 1. stdlib
 import uuid
 from datetime import datetime, timezone
 
 # 2. third-party
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
 from pydantic import BaseModel, ConfigDict
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 # 3. local
-from app.models.corpus import CorpusModel, PageModel
+from app.models.corpus import CorpusModel, ManuscriptModel, PageModel
 from app.models.database import get_db
 from app.models.job import JobModel
+from app.services.corpus_runner import execute_corpus_job
+from app.services.job_runner import execute_page_job
 
 router = APIRouter(tags=["jobs"])
 
@@ -71,18 +72,19 @@ def _new_job(corpus_id: str, page_id: str | None) -> JobModel:
 
 @router.post("/corpora/{corpus_id}/run", response_model=CorpusRunResponse, status_code=202)
 async def run_corpus(
-    corpus_id: str, db: AsyncSession = Depends(get_db)
+    corpus_id: str,
+    background_tasks: BackgroundTasks,
+    db: AsyncSession = Depends(get_db),
 ) -> CorpusRunResponse:
     """Lance le pipeline sur toutes les pages du corpus.
 
-    Crée un JobModel par page (status=pending). Retourne immédiatement.
-    Le pipeline réel sera branché en Session C.
+    Crée un JobModel par page (status=pending), puis délègue l'exécution
+    réelle à execute_corpus_job via BackgroundTasks (retour immédiat).
     """
     corpus = await db.get(CorpusModel, corpus_id)
     if corpus is None:
         raise HTTPException(status_code=404, detail="Corpus introuvable")
 
-    from app.models.corpus import ManuscriptModel
     ms_result = await db.execute(
         select(ManuscriptModel).where(ManuscriptModel.corpus_id == corpus_id)
     )
@@ -98,6 +100,9 @@ async def run_corpus(
         db.add(job)
     await db.commit()
 
+    # Lancer le pipeline en arrière-plan (après envoi de la réponse)
+    background_tasks.add_task(execute_corpus_job, corpus_id)
+
     return CorpusRunResponse(
         corpus_id=corpus_id,
         jobs_created=len(jobs),
@@ -107,14 +112,19 @@ async def run_corpus(
 
 @router.post("/pages/{page_id}/run", response_model=JobResponse, status_code=202)
 async def run_page(
-    page_id: str, db: AsyncSession = Depends(get_db)
+    page_id: str,
+    background_tasks: BackgroundTasks,
+    db: AsyncSession = Depends(get_db),
 ) -> JobModel:
-    """Lance le pipeline sur une seule page. Retourne le job créé."""
+    """Lance le pipeline sur une seule page.
+
+    Crée un JobModel (status=pending) et délègue l'exécution à
+    execute_page_job via BackgroundTasks (retour immédiat).
+    """
     page = await db.get(PageModel, page_id)
     if page is None:
         raise HTTPException(status_code=404, detail="Page introuvable")
 
-    from app.models.corpus import ManuscriptModel
     manuscript = await db.get(ManuscriptModel, page.manuscript_id)
     if manuscript is None:
         raise HTTPException(status_code=404, detail="Manuscrit introuvable")
@@ -123,6 +133,10 @@ async def run_page(
     db.add(job)
     await db.commit()
     await db.refresh(job)
+
+    # Lancer le pipeline en arrière-plan (après envoi de la réponse)
+    background_tasks.add_task(execute_page_job, job.id)
+
     return job
 
 
@@ -136,7 +150,11 @@ async def get_job(job_id: str, db: AsyncSession = Depends(get_db)) -> JobModel:
 
 
 @router.post("/jobs/{job_id}/retry", response_model=JobResponse)
-async def retry_job(job_id: str, db: AsyncSession = Depends(get_db)) -> JobModel:
+async def retry_job(
+    job_id: str,
+    background_tasks: BackgroundTasks,
+    db: AsyncSession = Depends(get_db),
+) -> JobModel:
     """Relance un job en état FAILED (remet le status à pending).
 
     Retourne 409 si le job n'est pas dans l'état FAILED.
@@ -155,4 +173,8 @@ async def retry_job(job_id: str, db: AsyncSession = Depends(get_db)) -> JobModel
     job.finished_at = None
     await db.commit()
     await db.refresh(job)
+
+    # Relancer le pipeline
+    background_tasks.add_task(execute_page_job, job.id)
+
     return job
