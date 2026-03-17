@@ -2,7 +2,7 @@
 title: Scriptorium AI
 emoji: 📜
 colorFrom: blue
-colorTo: gold
+colorTo: yellow
 sdk: docker
 app_port: 7860
 pinned: false
