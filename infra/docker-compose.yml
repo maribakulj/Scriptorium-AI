@@ -1,0 +1,25 @@
+# docker-compose pour développement local UNIQUEMENT.
+# Lancer depuis la racine du dépôt :
+#   docker compose -f infra/docker-compose.yml up --build
+#
+# Les secrets ne doivent jamais figurer dans ce fichier (R06).
+# Copier .env.example → .env et y renseigner les clés.
+
+services:
+  api:
+    build:
+      context: ..            # racine du dépôt = contexte de build
+      dockerfile: infra/Dockerfile
+    ports:
+      - "7860:7860"
+    volumes:
+      - ../data:/app/data    # artefacts montés en volume, hors image
+    environment:
+      # Provider IA : google_ai_studio | google_vertex | google_ai_api
+      - AI_PROVIDER=${AI_PROVIDER:-google_ai_studio}
+      # Clés selon le provider choisi — à définir dans .env
+      - GOOGLE_AI_STUDIO_API_KEY=${GOOGLE_AI_STUDIO_API_KEY:-}
+      - GOOGLE_AI_API_KEY=${GOOGLE_AI_API_KEY:-}
+      - GOOGLE_VERTEX_PROJECT=${GOOGLE_VERTEX_PROJECT:-}
+      - GOOGLE_VERTEX_LOCATION=${GOOGLE_VERTEX_LOCATION:-us-central1}
+    restart: unless-stopped
