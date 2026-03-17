@@ -921,22 +921,22 @@ GET    /api/v1/manuscripts/{id}/search?q=
 ## 13. État du projet par sprint
 
 ```
-Sprint 1 — Fondations du modèle de données        [ TERMINÉ ✓ ]
+Sprint 1 — Fondations du modèle de données        
   54 tests passants. Schémas Pydantic. 4 profils. 9 templates prompts.
 
-Sprint 2 — Pipeline page unique                    [ EN COURS ]
+Sprint 2 — Pipeline page unique                    
   Connexion Google AI validée → ingestion image → master.json
 
-Sprint 3 — Exports documentaires                   [ À FAIRE ]
+Sprint 3 — Exports documentaires                   
   ALTO par page + METS + Manifest IIIF
 
-Sprint 4 — API FastAPI + interface de lecture       [ À FAIRE ]
+Sprint 4 — API FastAPI + interface de lecture       
   Endpoints + visionneuse OpenSeadragon + 4 couches
 
-Sprint 5 — Traitement en lot + HuggingFace         [ À FAIRE ]
+Sprint 5 — Traitement en lot + HuggingFace         
   Pipeline batch + déploiement public
 
-Sprint 6 — Validation humaine + V1 complète        [ À FAIRE ]
+Sprint 6 — Validation humaine + V1 complète       
   Éditeur + versionnement + recherche
 ```
 
