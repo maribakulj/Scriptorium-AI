@@ -12,6 +12,7 @@ from contextlib import asynccontextmanager
 # 2. third-party
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import RedirectResponse
 
 # 3. local — on importe les modèles pour que Base.metadata les connaisse
 import app.models  # noqa: F401  (enregistrement des modèles SQLAlchemy)
@@ -47,6 +48,12 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# ── Root redirect → /docs ─────────────────────────────────────────────────────
+@app.get("/", include_in_schema=False)
+async def root() -> RedirectResponse:
+    return RedirectResponse(url="/docs")
+
 
 # ── Routers (préfixe /api/v1/ — R10) ─────────────────────────────────────────
 _V1_PREFIX = "/api/v1"
