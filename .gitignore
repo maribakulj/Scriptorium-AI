@@ -1,6 +1,10 @@
 # Data — jamais versionné (CLAUDE.md section 3)
 data/
 
+# Base de données SQLite runtime
+*.db
+*.sqlite
+
 # Python
 __pycache__/
 *.py[cod]
