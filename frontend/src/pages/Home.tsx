@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 import AdminNav from '../components/AdminNav.tsx'
+import SearchBar from '../components/SearchBar.tsx'
 import {
   fetchCorpora,
   fetchManuscripts,
@@ -71,7 +72,10 @@ export default function Home({ onOpenManuscript, onAdmin }: Props) {
             Plateforme de génération d'éditions savantes augmentées
           </p>
         </div>
-        <AdminNav onClick={onAdmin} />
+        <div className="flex items-center gap-4">
+          <SearchBar />
+          <AdminNav onClick={onAdmin} />
+        </div>
       </header>
 
       <main className="max-w-3xl mx-auto py-10 px-8">

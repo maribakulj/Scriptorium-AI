@@ -20,9 +20,10 @@ interface Props {
   manuscriptId: string
   profileId: string
   onBack: () => void
+  onEdit?: (pageId: string) => void
 }
 
-export default function Reader({ manuscriptId, profileId, onBack }: Props) {
+export default function Reader({ manuscriptId, profileId, onBack, onEdit }: Props) {
   const [pages, setPages] = useState<Page[]>([])
   const [currentIndex, setCurrentIndex] = useState(0)
   const [master, setMaster] = useState<PageMaster | null>(null)
@@ -113,6 +114,14 @@ export default function Reader({ manuscriptId, profileId, onBack }: Props) {
           <span className="text-stone-400 text-xs">
             {currentPage.folio_label} — {currentIndex + 1} / {pages.length}
           </span>
+          {onEdit && (
+            <button
+              onClick={() => onEdit(currentPage.id)}
+              className="px-3 py-1 bg-amber-600 hover:bg-amber-500 rounded text-sm text-white transition-colors"
+            >
+              Éditer cette page
+            </button>
+          )}
           <button
             disabled={currentIndex === 0}
             onClick={() => setCurrentIndex((i) => i - 1)}
