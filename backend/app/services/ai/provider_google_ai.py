@@ -7,6 +7,7 @@ import os
 
 # 2. third-party
 from google import genai
+from google.genai import types
 
 # 3. local
 from app.schemas.model_config import ModelInfo, ProviderType
@@ -53,3 +54,14 @@ class GoogleAIProvider(AIProvider):
             extra={"provider": self.provider_type, "count": len(result)},
         )
         return result
+
+    def generate_content(self, image_bytes: bytes, prompt: str, model_id: str) -> str:
+        if not self.is_configured():
+            raise RuntimeError(f"Variable d'environnement manquante : {_ENV_KEY}")
+        client = genai.Client(api_key=os.environ[_ENV_KEY])
+        image_part = types.Part.from_bytes(data=image_bytes, mime_type="image/jpeg")
+        response = client.models.generate_content(
+            model=model_id,
+            contents=[image_part, prompt],
+        )
+        return response.text or ""

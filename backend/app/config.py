@@ -41,9 +41,13 @@ class Settings(BaseModel):
     database_url: str = "sqlite+aiosqlite:///./scriptorium.db"
 
     # ── Fournisseurs IA (R06 — clés depuis l'environnement uniquement) ────────
+    # Chaque clé est optionnelle. Le backend détecte automatiquement quels
+    # providers sont disponibles selon les clés présentes. Pas de AI_PROVIDER
+    # global : le provider est choisi par corpus depuis l'interface.
     google_ai_studio_api_key: str | None = None
     vertex_api_key: str | None = None
     vertex_service_account_json: str | None = None
+    mistral_api_key: str | None = None
 
 
 def _load_settings() -> Settings:
@@ -59,6 +63,7 @@ def _load_settings() -> Settings:
         google_ai_studio_api_key=os.getenv("GOOGLE_AI_STUDIO_API_KEY"),
         vertex_api_key=os.getenv("VERTEX_API_KEY"),
         vertex_service_account_json=os.getenv("VERTEX_SERVICE_ACCOUNT_JSON"),
+        mistral_api_key=os.getenv("MISTRAL_API_KEY"),
     )
 
 
