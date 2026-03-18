@@ -12,7 +12,7 @@ from pydantic import ValidationError
 # 3. local
 from app.schemas.corpus_profile import CorpusProfile, LayerType, ScriptType
 
-PROFILES_DIR = Path(__file__).parent.parent.parent / "profiles"
+PROFILES_DIR = Path(__file__).resolve().parent.parent.parent / "profiles"
 PROFILE_FILES = [
     "medieval-illuminated.json",
     "medieval-textual.json",

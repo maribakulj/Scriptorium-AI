@@ -39,8 +39,11 @@ from app.services.image.normalizer import create_derivatives, fetch_and_normaliz
 
 logger = logging.getLogger(__name__)
 
-# Racine du projet : backend/app/services/job_runner.py → 3 parents → project root
-_PROJECT_ROOT = Path(__file__).parent.parent.parent.parent
+# Racine du projet — résolue via .resolve() pour garantir un chemin absolu
+# même si __file__ est relatif au CWD (comportement variable selon l'environnement
+# d'exécution : Docker, HuggingFace Spaces, tests...).
+# job_runner.py est à backend/app/services/job_runner.py → 4 parents → racine.
+_PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent.parent
 
 
 # ── Point d'entrée public ──────────────────────────────────────────────────
@@ -96,7 +99,9 @@ async def _run_job_impl(job_id: str, db: AsyncSession) -> None:
             raise ValueError(f"Corpus introuvable en BDD : {manuscript.corpus_id}")
 
         # ── 3. Charger le CorpusProfile ──────────────────────────────────────
-        profile_path = _PROJECT_ROOT / "profiles" / f"{corpus.profile_id}.json"
+        # settings.profiles_dir est la source canonique du chemin (config.py).
+        # Résolu depuis PROFILES_DIR en Docker, ou _REPO_ROOT/profiles en local.
+        profile_path = _config_module.settings.profiles_dir / f"{corpus.profile_id}.json"
         if not profile_path.exists():
             raise FileNotFoundError(
                 f"Fichier de profil introuvable : {profile_path}. "

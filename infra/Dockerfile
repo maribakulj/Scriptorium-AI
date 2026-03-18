@@ -58,6 +58,7 @@ RUN mkdir -p /app/data
 ENV PYTHONPATH=/app/backend
 ENV PROFILES_DIR=/app/profiles
 ENV PROMPTS_DIR=/app/prompts
+ENV DATA_DIR=/app/data
 
 EXPOSE 7860
 

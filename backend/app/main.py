@@ -26,6 +26,30 @@ logger = logging.getLogger(__name__)
 @asynccontextmanager
 async def lifespan(application: FastAPI):
     """Crée les tables SQLite au démarrage, libère l'engine à l'arrêt."""
+    from app.config import settings
+
+    # ── Diagnostic des chemins au démarrage ──────────────────────────────────
+    # Ces logs apparaissent dans la console HuggingFace et permettent de
+    # diagnostiquer instantanément tout problème de chemin en production.
+    logger.info(
+        "Démarrage Scriptorium AI — chemins configurés",
+        extra={
+            "profiles_dir": str(settings.profiles_dir),
+            "profiles_dir_ok": settings.profiles_dir.is_dir(),
+            "prompts_dir": str(settings.prompts_dir),
+            "prompts_dir_ok": settings.prompts_dir.is_dir(),
+            "data_dir": str(settings.data_dir),
+            "data_dir_ok": settings.data_dir.exists(),
+        },
+    )
+    if not settings.profiles_dir.is_dir():
+        logger.error(
+            "ERREUR CRITIQUE : profiles_dir introuvable au démarrage. "
+            "GET /api/v1/profiles retournera []. "
+            "Vérifier PROFILES_DIR ou la structure du container.",
+            extra={"profiles_dir": str(settings.profiles_dir)},
+        )
+
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
     logger.info("Tables SQLite initialisées")
