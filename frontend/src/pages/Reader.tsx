@@ -206,9 +206,11 @@ export default function Reader({ manuscriptId, profileId, onBack }: Props) {
               </>
             ) : (
               <div className="p-4 text-sm text-stone-400 italic">
-                {imageUrl
-                  ? 'Cette page n'a pas encore été analysée par l'IA.'
-                  : 'Aucune image associée à cette page.'}
+                {imageUrl ? (
+                  <span>Page non encore analysée par l&apos;IA.</span>
+                ) : (
+                  <span>Aucune image associée à cette page.</span>
+                )}
               </div>
             )}
           </div>
