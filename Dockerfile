@@ -1,16 +1,24 @@
-# Scriptorium AI — image de production
+# Scriptorium AI — image de production (multi-stage)
 # Ce fichier est la copie exacte de infra/Dockerfile.
 # Il est requis à la racine du dépôt pour HuggingFace Spaces (SDK docker).
 #
 # Build depuis la racine du dépôt :
 #   docker build -t scriptorium-ai .
-#
-# Structure attendue dans l'image :
-#   /app/backend/app/   ← source Python (importable via PYTHONPATH)
-#   /app/profiles/      ← profils JSON
-#   /app/prompts/       ← templates de prompts
-#   /app/data/          ← créé vide ; à monter en volume pour les artefacts
 
+# ── Stage 1 : build du frontend React ────────────────────────────────────────
+FROM node:20-slim AS frontend-builder
+
+WORKDIR /frontend
+
+# Installer les dépendances (cache layer séparé)
+COPY frontend/package.json ./
+RUN npm install
+
+# Copier les sources et builder
+COPY frontend/ ./
+RUN npm run build
+
+# ── Stage 2 : image Python finale ────────────────────────────────────────────
 FROM python:3.11-slim
 
 WORKDIR /app
@@ -25,10 +33,13 @@ RUN mkdir -p /tmp/build/app \
     && pip install --no-cache-dir /tmp/build/ \
     && rm -rf /tmp/build
 
-# ── Code source ────────────────────────────────────────────────────────────
+# ── Code source backend ────────────────────────────────────────────────────
 COPY backend/app ./backend/app
 COPY profiles/ ./profiles/
 COPY prompts/ ./prompts/
+
+# ── Frontend buildé ────────────────────────────────────────────────────────
+COPY --from=frontend-builder /frontend/dist ./static
 
 # ── Répertoire des artefacts (vide dans l'image ; monté en volume) ─────────
 RUN mkdir -p /app/data

@@ -5,6 +5,7 @@ GET    /api/v1/corpora
 POST   /api/v1/corpora
 GET    /api/v1/corpora/{corpus_id}
 DELETE /api/v1/corpora/{corpus_id}
+GET    /api/v1/corpora/{corpus_id}/manuscripts
 
 Règle : toute logique métier est dans les services, jamais dans les routers.
 """
@@ -19,7 +20,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 # 3. local
-from app.models.corpus import CorpusModel
+from app.models.corpus import CorpusModel, ManuscriptModel
 from app.models.database import get_db
 
 router = APIRouter(prefix="/corpora", tags=["corpora"])
@@ -42,6 +43,17 @@ class CorpusResponse(BaseModel):
     profile_id: str
     created_at: datetime
     updated_at: datetime
+
+
+class ManuscriptResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: str
+    corpus_id: str
+    title: str
+    shelfmark: str | None
+    date_label: str | None
+    total_pages: int
 
 
 # ── Endpoints ────────────────────────────────────────────────────────────────
@@ -97,3 +109,17 @@ async def delete_corpus(corpus_id: str, db: AsyncSession = Depends(get_db)) -> N
         raise HTTPException(status_code=404, detail="Corpus introuvable")
     await db.delete(corpus)
     await db.commit()
+
+
+@router.get("/{corpus_id}/manuscripts", response_model=list[ManuscriptResponse])
+async def list_manuscripts(
+    corpus_id: str, db: AsyncSession = Depends(get_db)
+) -> list[ManuscriptModel]:
+    """Retourne tous les manuscrits d'un corpus."""
+    corpus = await db.get(CorpusModel, corpus_id)
+    if corpus is None:
+        raise HTTPException(status_code=404, detail="Corpus introuvable")
+    result = await db.execute(
+        select(ManuscriptModel).where(ManuscriptModel.corpus_id == corpus_id)
+    )
+    return list(result.scalars().all())

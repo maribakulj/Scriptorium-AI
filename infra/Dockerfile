@@ -1,4 +1,5 @@
-# Scriptorium AI — image de production
+# Scriptorium AI — image de production (multi-stage)
+# Ce fichier est la copie exacte de Dockerfile (racine).
 # Build depuis la racine du dépôt :
 #   docker build -f infra/Dockerfile -t scriptorium-ai .
 #
@@ -6,15 +7,26 @@
 #   /app/backend/app/   ← source Python (importable via PYTHONPATH)
 #   /app/profiles/      ← profils JSON
 #   /app/prompts/       ← templates de prompts
+#   /app/static/        ← frontend React buildé
 #   /app/data/          ← créé vide ; à monter en volume pour les artefacts
 
+# ── Stage 1 : build du frontend React ────────────────────────────────────────
+FROM node:20-slim AS frontend-builder
+
+WORKDIR /frontend
+
+# Installer les dépendances (cache layer séparé)
+COPY frontend/package.json ./
+RUN npm install
+
+# Copier les sources et builder
+COPY frontend/ ./
+RUN npm run build
+
+# ── Stage 2 : image Python finale ────────────────────────────────────────────
 FROM python:3.11-slim
 
 WORKDIR /app
-
-# ── Dépendances système (lxml utilise des wheels binaires pré-compilés ;
-#    aucun outil de build requis sur cette image) ─────────────────────────────
-# Aucun paquet système supplémentaire nécessaire.
 
 # ── Dépendances Python ─────────────────────────────────────────────────────
 # On copie uniquement pyproject.toml pour exploiter le cache de layers Docker.
@@ -26,11 +38,13 @@ RUN mkdir -p /tmp/build/app \
     && pip install --no-cache-dir /tmp/build/ \
     && rm -rf /tmp/build
 
-# ── Code source ────────────────────────────────────────────────────────────
-# Copié APRÈS l'installation des dépendances pour conserver le cache.
+# ── Code source backend ────────────────────────────────────────────────────
 COPY backend/app ./backend/app
 COPY profiles/ ./profiles/
 COPY prompts/ ./prompts/
+
+# ── Frontend buildé ────────────────────────────────────────────────────────
+COPY --from=frontend-builder /frontend/dist ./static
 
 # ── Répertoire des artefacts (vide dans l'image ; monté en volume) ─────────
 RUN mkdir -p /app/data
