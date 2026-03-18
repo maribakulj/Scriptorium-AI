@@ -13,6 +13,11 @@ from pathlib import Path
 # 2. third-party
 from pydantic import BaseModel, ConfigDict
 
+# Racine du dépôt — résolue depuis l'emplacement absolu de ce fichier.
+# config.py se trouve dans backend/app/ ; 3 parents remontent à la racine.
+# .resolve() garantit un chemin absolu même si __file__ est relatif au CWD.
+_REPO_ROOT = Path(__file__).resolve().parent.parent.parent
+
 
 class Settings(BaseModel):
     """Paramètres d'application lus depuis les variables d'environnement.
@@ -26,6 +31,11 @@ class Settings(BaseModel):
     # ── Serveur ──────────────────────────────────────────────────────────────
     base_url: str = "http://localhost:8000"
     data_dir: Path = Path("data")
+
+    # ── Chemins des ressources statiques ─────────────────────────────────────
+    # Calculés depuis la racine du dépôt ; surchargeables via variables d'env.
+    profiles_dir: Path = _REPO_ROOT / "profiles"
+    prompts_dir: Path = _REPO_ROOT / "prompts"
 
     # ── Base de données ───────────────────────────────────────────────────────
     database_url: str = "sqlite+aiosqlite:///./scriptorium.db"
@@ -41,6 +51,8 @@ def _load_settings() -> Settings:
     return Settings(
         base_url=os.getenv("BASE_URL", "http://localhost:8000"),
         data_dir=Path(os.getenv("DATA_DIR", "data")),
+        profiles_dir=Path(os.getenv("PROFILES_DIR", str(_REPO_ROOT / "profiles"))),
+        prompts_dir=Path(os.getenv("PROMPTS_DIR", str(_REPO_ROOT / "prompts"))),
         database_url=os.getenv(
             "DATABASE_URL", "sqlite+aiosqlite:///./scriptorium.db"
         ),
