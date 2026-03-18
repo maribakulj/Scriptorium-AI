@@ -17,7 +17,7 @@ from fastapi.responses import FileResponse, RedirectResponse
 
 # 3. local — on importe les modèles pour que Base.metadata les connaisse
 import app.models  # noqa: F401  (enregistrement des modèles SQLAlchemy)
-from app.api.v1 import corpora, export, ingest, jobs, manuscripts, models_api, pages, profiles
+from app.api.v1 import corpora, export, ingest, jobs, manuscripts, models_api, pages, profiles, search
 from app.models.database import Base, engine
 
 logger = logging.getLogger(__name__)
@@ -61,6 +61,7 @@ app.include_router(profiles.router, prefix=_V1_PREFIX)
 app.include_router(jobs.router, prefix=_V1_PREFIX)
 app.include_router(ingest.router, prefix=_V1_PREFIX)
 app.include_router(models_api.router, prefix=_V1_PREFIX)
+app.include_router(search.router, prefix=_V1_PREFIX)
 
 # ── Serving frontend SPA (production) ou redirect /docs (dev) ────────────────
 _STATIC_DIR = Path("/app/static")

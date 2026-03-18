@@ -293,3 +293,42 @@ export const getJob = (jobId: string): Promise<Job> =>
 
 export const retryJob = (jobId: string): Promise<Job> =>
   post(`/api/v1/jobs/${jobId}/retry`)
+
+export interface VersionInfo {
+  version: number
+  saved_at: string
+  status: string
+}
+
+export interface CorrectionsInput {
+  ocr_diplomatic_text?: string
+  editorial_status?: string
+  commentary_public?: string
+  commentary_scholarly?: string
+  region_validations?: Record<string, string>
+  restore_to_version?: number
+}
+
+export interface SearchResult {
+  page_id: string
+  folio_label: string
+  manuscript_id: string
+  excerpt: string
+  score: number
+  corpus_profile: string
+}
+
+export const fetchPage = (pageId: string): Promise<Page> =>
+  get(`/api/v1/pages/${pageId}`)
+
+export const applyCorrections = (
+  pageId: string,
+  corrections: CorrectionsInput,
+): Promise<PageMaster> =>
+  post(`/api/v1/pages/${pageId}/corrections`, corrections)
+
+export const getHistory = (pageId: string): Promise<VersionInfo[]> =>
+  get(`/api/v1/pages/${pageId}/history`)
+
+export const searchPages = (q: string): Promise<SearchResult[]> =>
+  get(`/api/v1/search?q=${encodeURIComponent(q)}`)
