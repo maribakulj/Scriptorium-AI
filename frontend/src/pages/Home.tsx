@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+import AdminNav from '../components/AdminNav.tsx'
 import {
   fetchCorpora,
   fetchManuscripts,
@@ -8,9 +9,10 @@ import {
 
 interface Props {
   onOpenManuscript: (manuscriptId: string, profileId: string) => void
+  onAdmin: () => void
 }
 
-export default function Home({ onOpenManuscript }: Props) {
+export default function Home({ onOpenManuscript, onAdmin }: Props) {
   const [corpora, setCorpora] = useState<Corpus[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
@@ -62,11 +64,14 @@ export default function Home({ onOpenManuscript }: Props) {
 
   return (
     <div className="min-h-screen bg-stone-50">
-      <header className="bg-stone-900 text-stone-100 px-8 py-6">
-        <h1 className="text-2xl font-semibold tracking-tight">Scriptorium AI</h1>
-        <p className="text-stone-400 text-sm mt-1">
-          Plateforme de génération d'éditions savantes augmentées
-        </p>
+      <header className="bg-stone-900 text-stone-100 px-8 py-6 flex items-start justify-between">
+        <div>
+          <h1 className="text-2xl font-semibold tracking-tight">Scriptorium AI</h1>
+          <p className="text-stone-400 text-sm mt-1">
+            Plateforme de génération d'éditions savantes augmentées
+          </p>
+        </div>
+        <AdminNav onClick={onAdmin} />
       </header>
 
       <main className="max-w-3xl mx-auto py-10 px-8">
