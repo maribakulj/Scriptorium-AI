@@ -51,6 +51,8 @@ RUN mkdir -p /app/data
 
 # PYTHONPATH permet l'import `app.main:app` depuis /app/backend/app/
 ENV PYTHONPATH=/app/backend
+ENV PROFILES_DIR=/app/profiles
+ENV PROMPTS_DIR=/app/prompts
 
 EXPOSE 7860
 

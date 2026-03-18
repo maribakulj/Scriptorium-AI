@@ -38,7 +38,16 @@ def _load_profile(path: Path) -> CorpusProfile | None:
 @router.get("", response_model=list[dict])
 async def list_profiles() -> list[dict]:
     """Retourne tous les profils valides du dossier profiles/."""
+    logger.info(
+        "Résolution profiles_dir",
+        extra={
+            "profiles_dir": str(settings.profiles_dir),
+            "resolved": str(settings.profiles_dir.resolve()),
+            "is_dir": settings.profiles_dir.is_dir(),
+        },
+    )
     if not settings.profiles_dir.is_dir():
+        logger.warning("profiles_dir introuvable : %s", settings.profiles_dir)
         return []
     profiles = []
     for path in sorted(settings.profiles_dir.glob("*.json")):
