@@ -14,6 +14,7 @@ class ProviderType(str, Enum):
     GOOGLE_AI_STUDIO = "google_ai_studio"
     VERTEX_API_KEY = "vertex_api_key"
     VERTEX_SERVICE_ACCOUNT = "vertex_service_account"
+    MISTRAL = "mistral"
 
 
 class ModelInfo(BaseModel):

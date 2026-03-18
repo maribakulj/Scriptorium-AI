@@ -1,12 +1,12 @@
 """
-Tests des endpoints /api/v1/models (Sprint 4 — Session B).
+Tests des endpoints /api/v1/models/* (Sprint 4 — Session B).
 
 Stratégie :
-  - Appels Google AI mockés via monkeypatch sur list_all_models
+  - Appels Google AI mockés via monkeypatch sur list_all_models (nom local dans models_api_module)
   - BDD SQLite en mémoire pour les endpoints qui touchent la BDD (PUT/GET model)
 
 Vérifie :
-- GET  /api/v1/models            → liste mockée
+- GET  /api/v1/models            → supprimé (404) — remplacé par /providers
 - POST /api/v1/models/refresh    → mise à jour + timestamp
 - PUT  /api/v1/corpora/{id}/model → création + mise à jour
 - GET  /api/v1/corpora/{id}/model → 200 ou 404
@@ -76,57 +76,15 @@ async def test_settings_api_key_endpoint_removed(async_client):
 
 
 # ---------------------------------------------------------------------------
-# GET /api/v1/models
+# GET /api/v1/models → supprimé (remplacé par /providers)
 # ---------------------------------------------------------------------------
 
 @pytest.mark.asyncio
-async def test_get_models_returns_list(async_client, monkeypatch):
-    monkeypatch.setattr(
-        models_api_module, "list_all_models", lambda: _MOCK_MODELS
-    )
-    response = await async_client.get("/api/v1/models")
-    assert response.status_code == 200
-    assert isinstance(response.json(), list)
-
-
-@pytest.mark.asyncio
-async def test_get_models_count(async_client, monkeypatch):
-    monkeypatch.setattr(
-        models_api_module, "list_all_models", lambda: _MOCK_MODELS
-    )
-    models = response = await async_client.get("/api/v1/models")
-    assert len(response.json()) == 2
-
-
-@pytest.mark.asyncio
-async def test_get_models_fields(async_client, monkeypatch):
-    monkeypatch.setattr(
-        models_api_module, "list_all_models", lambda: _MOCK_MODELS
-    )
-    models = (await async_client.get("/api/v1/models")).json()
-    m = models[0]
-    assert "model_id" in m
-    assert "display_name" in m
-    assert "provider" in m
-    assert "supports_vision" in m
-
-
-@pytest.mark.asyncio
-async def test_get_models_empty_when_no_provider(async_client, monkeypatch):
-    monkeypatch.setattr(models_api_module, "list_all_models", lambda: [])
-    response = await async_client.get("/api/v1/models")
-    assert response.status_code == 200
-    assert response.json() == []
-
-
-@pytest.mark.asyncio
-async def test_get_models_contains_gemini(async_client, monkeypatch):
-    monkeypatch.setattr(
-        models_api_module, "list_all_models", lambda: _MOCK_MODELS
-    )
-    models = (await async_client.get("/api/v1/models")).json()
-    ids = [m["model_id"] for m in models]
-    assert any("gemini" in mid for mid in ids)
+async def test_get_models_endpoint_removed(async_client):
+    """GET /api/v1/models ne doit plus retourner de données (remplacé par /providers)."""
+    resp = await async_client.get("/api/v1/models")
+    # L'endpoint n'existe pas : FastAPI retourne 404/405 ou le catch-all renvoie 307
+    assert resp.status_code != 200
 
 
 # ---------------------------------------------------------------------------

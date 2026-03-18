@@ -3,7 +3,8 @@ import {
   fetchCorpora,
   listProfiles,
   createCorpus,
-  listModels,
+  fetchProviders,
+  fetchProviderModels,
   selectModel,
   ingestImages,
   ingestManifest,
@@ -13,6 +14,7 @@ import {
   retryJob,
   type Corpus,
   type CorpusProfile,
+  type ProviderInfo,
   type ModelInfo,
   type Job,
   type CreateCorpusInput,
@@ -201,27 +203,56 @@ interface ModelSectionProps {
 }
 
 function ModelSection({ corpora, selectedCorpusId, onSelectCorpus }: ModelSectionProps) {
+  // Étape 1 : providers détectés automatiquement
+  const [providers, setProviders] = useState<ProviderInfo[]>([])
+  const [loadingProviders, setLoadingProviders] = useState(true)
+  const [providersError, setProvidersError] = useState<string | null>(null)
+
+  // Étape 2 : provider sélectionné → charge ses modèles
+  const [selectedProvider, setSelectedProvider] = useState<string>('')
   const [models, setModels] = useState<ModelInfo[]>([])
-  const [loadingModels, setLoadingModels] = useState(true)
-  const [loadError, setLoadError] = useState<string | null>(null)
+  const [loadingModels, setLoadingModels] = useState(false)
+  const [modelsError, setModelsError] = useState<string | null>(null)
   const [selectedModelId, setSelectedModelId] = useState('')
+
+  // Étape 3 : enregistrement
   const [savingModel, setSavingModel] = useState(false)
   const [saveError, setSaveError] = useState<string | null>(null)
   const [saveSuccess, setSaveSuccess] = useState<string | null>(null)
 
+  // Charge la liste des providers au montage
   useEffect(() => {
+    setLoadingProviders(true)
+    setProvidersError(null)
+    fetchProviders()
+      .then((ps) => {
+        setProviders(ps)
+        const first = ps.find((p) => p.available)
+        if (first) setSelectedProvider(first.provider_type)
+      })
+      .catch((err) => {
+        setProvidersError(err instanceof Error ? err.message : 'Erreur inconnue')
+      })
+      .finally(() => setLoadingProviders(false))
+  }, [])
+
+  // Charge les modèles quand le provider change
+  useEffect(() => {
+    if (!selectedProvider) return
+    setModels([])
+    setSelectedModelId('')
+    setModelsError(null)
     setLoadingModels(true)
-    setLoadError(null)
-    listModels()
+    fetchProviderModels(selectedProvider)
       .then((ms) => {
         setModels(ms)
         if (ms.length > 0) setSelectedModelId(ms[0].model_id)
       })
       .catch((err) => {
-        setLoadError(err instanceof Error ? err.message : 'Erreur inconnue')
+        setModelsError(err instanceof Error ? err.message : 'Erreur inconnue')
       })
       .finally(() => setLoadingModels(false))
-  }, [])
+  }, [selectedProvider])
 
   const handleSelectModel = async (e: FormEvent) => {
     e.preventDefault()
@@ -234,7 +265,7 @@ function ModelSection({ corpora, selectedCorpusId, onSelectCorpus }: ModelSectio
         selectedCorpusId,
         selectedModelId,
         model?.display_name ?? selectedModelId,
-        model?.provider ?? 'google_ai_studio',
+        selectedProvider,
       )
       setSaveSuccess(
         `Modèle « ${model?.display_name ?? selectedModelId} » associé au corpus.`,
@@ -246,57 +277,95 @@ function ModelSection({ corpora, selectedCorpusId, onSelectCorpus }: ModelSectio
     }
   }
 
+  const availableProviders = providers.filter((p) => p.available)
+
   return (
     <section>
       <h2 className="text-lg font-semibold text-stone-800 mb-6">Configurer le modèle IA</h2>
       <CorpusSelector corpora={corpora} value={selectedCorpusId} onChange={onSelectCorpus} />
 
-      {loadingModels && (
-        <p className="text-sm text-stone-400">Chargement des modèles disponibles…</p>
+      {/* Étape 1 — Providers détectés */}
+      {loadingProviders && (
+        <p className="text-sm text-stone-400 mb-4">Détection des providers disponibles…</p>
       )}
-
-      {!loadingModels && loadError && (
-        <ErrorMsg message={loadError} />
-      )}
-
-      {!loadingModels && !loadError && models.length === 0 && (
-        <p className="text-sm text-amber-600 bg-amber-50 border border-amber-200 rounded px-3 py-2">
-          Aucun modèle détecté. Vérifiez que les secrets{' '}
-          <code className="font-mono">AI_PROVIDER</code> et{' '}
-          <code className="font-mono">VERTEX_API_KEY</code> (ou{' '}
-          <code className="font-mono">GOOGLE_AI_STUDIO_API_KEY</code>) sont bien configurés
-          dans les secrets HuggingFace.
-        </p>
-      )}
-
-      {!loadingModels && models.length > 0 && (
-        <form onSubmit={(e) => void handleSelectModel(e)} className="space-y-4 max-w-md">
-          <div>
-            <label className="block text-xs font-semibold text-stone-500 uppercase tracking-wide mb-1">
-              Modèle disponible
-            </label>
-            <select
-              value={selectedModelId}
-              onChange={(e) => setSelectedModelId(e.target.value)}
-              className="border border-stone-300 rounded px-3 py-2 text-sm w-full bg-white focus:outline-none focus:ring-2 focus:ring-stone-400"
-            >
-              {models.map((m) => (
-                <option key={m.model_id} value={m.model_id}>
-                  {m.display_name} — {m.provider}
-                  {m.supports_vision ? ' (vision)' : ''}
-                </option>
-              ))}
-            </select>
+      {!loadingProviders && providersError && <ErrorMsg message={providersError} />}
+      {!loadingProviders && providers.length > 0 && (
+        <div className="mb-6">
+          <p className="text-xs font-semibold text-stone-500 uppercase tracking-wide mb-2">
+            Providers IA détectés
+          </p>
+          <div className="flex flex-wrap gap-2">
+            {providers.map((p) => (
+              <span
+                key={p.provider_type}
+                className={`inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-medium border ${
+                  p.available
+                    ? 'bg-green-50 border-green-200 text-green-800 cursor-pointer hover:bg-green-100'
+                    : 'bg-stone-50 border-stone-200 text-stone-400 cursor-default'
+                } ${selectedProvider === p.provider_type ? 'ring-2 ring-stone-500' : ''}`}
+                onClick={() => p.available && setSelectedProvider(p.provider_type)}
+              >
+                <span
+                  className={`w-1.5 h-1.5 rounded-full ${p.available ? 'bg-green-500' : 'bg-stone-300'}`}
+                />
+                {p.display_name}
+                {p.available && (
+                  <span className="text-green-600">({p.model_count})</span>
+                )}
+                {!p.available && <span className="text-stone-400">— clé manquante</span>}
+              </span>
+            ))}
           </div>
+          {availableProviders.length === 0 && (
+            <p className="text-sm text-amber-600 bg-amber-50 border border-amber-200 rounded px-3 py-2 mt-3">
+              Aucun modèle détecté. Vérifiez que les secrets{' '}
+              <code className="font-mono">AI_PROVIDER</code> et{' '}
+              <code className="font-mono">VERTEX_API_KEY</code> (ou{' '}
+              <code className="font-mono">GOOGLE_AI_STUDIO_API_KEY</code> ou{' '}
+              <code className="font-mono">MISTRAL_API_KEY</code>) sont bien configurés
+              dans les secrets HuggingFace.
+            </p>
+          )}
+        </div>
+      )}
+
+      {/* Étape 2 + 3 — Sélection du modèle et enregistrement */}
+      {selectedProvider && (
+        <form onSubmit={(e) => void handleSelectModel(e)} className="space-y-4 max-w-md">
+          {loadingModels && (
+            <p className="text-sm text-stone-400">Chargement des modèles…</p>
+          )}
+          {!loadingModels && modelsError && <ErrorMsg message={modelsError} />}
+          {!loadingModels && models.length > 0 && (
+            <div>
+              <label className="block text-xs font-semibold text-stone-500 uppercase tracking-wide mb-1">
+                Modèle — {providers.find((p) => p.provider_type === selectedProvider)?.display_name}
+              </label>
+              <select
+                value={selectedModelId}
+                onChange={(e) => setSelectedModelId(e.target.value)}
+                className="border border-stone-300 rounded px-3 py-2 text-sm w-full bg-white focus:outline-none focus:ring-2 focus:ring-stone-400"
+              >
+                {models.map((m) => (
+                  <option key={m.model_id} value={m.model_id}>
+                    {m.display_name}
+                    {m.supports_vision ? ' (vision)' : ''}
+                  </option>
+                ))}
+              </select>
+            </div>
+          )}
           {saveError && <ErrorMsg message={saveError} />}
           {saveSuccess && <SuccessMsg message={saveSuccess} />}
-          <button
-            type="submit"
-            disabled={savingModel || !selectedCorpusId || !selectedModelId}
-            className="bg-stone-800 text-white px-5 py-2 rounded text-sm font-medium hover:bg-stone-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
-          >
-            {savingModel ? 'Enregistrement…' : 'Sélectionner ce modèle'}
-          </button>
+          {!loadingModels && models.length > 0 && (
+            <button
+              type="submit"
+              disabled={savingModel || !selectedCorpusId || !selectedModelId}
+              className="bg-stone-800 text-white px-5 py-2 rounded text-sm font-medium hover:bg-stone-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+            >
+              {savingModel ? 'Enregistrement…' : 'Sélectionner ce modèle'}
+            </button>
+          )}
         </form>
       )}
     </section>

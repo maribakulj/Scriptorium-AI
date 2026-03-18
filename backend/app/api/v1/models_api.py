@@ -1,13 +1,15 @@
 """
-Endpoints de gestion des modèles IA (R10 — préfixe /api/v1/).
+Endpoints de gestion des providers et modèles IA (R10 — préfixe /api/v1/).
 
-GET  /api/v1/models                 → liste les modèles disponibles via les credentials env
-POST /api/v1/models/refresh         → force la mise à jour de la liste
-PUT  /api/v1/corpora/{id}/model     → associe un modèle à un corpus
-GET  /api/v1/corpora/{id}/model     → modèle actif d'un corpus
+GET  /api/v1/providers                      → providers détectés (disponibles ou non)
+GET  /api/v1/providers/{provider_type}/models → modèles d'un provider
+POST /api/v1/models/refresh                 → liste agrégée de tous les modèles
+PUT  /api/v1/corpora/{id}/model             → associe un modèle à un corpus
+GET  /api/v1/corpora/{id}/model             → modèle actif d'un corpus
 
-Les clés API vivent exclusivement dans les secrets HuggingFace (variables d'environnement).
-L'interface ne demande jamais de clé à l'utilisateur (R06).
+Les clés API vivent exclusivement dans les secrets HuggingFace (variables
+d'environnement). Le backend détecte automatiquement quels providers sont
+disponibles au démarrage. L'interface ne demande jamais de clé (R06).
 """
 # 1. stdlib
 import logging
@@ -22,7 +24,12 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.models.corpus import CorpusModel
 from app.models.database import get_db
 from app.models.model_config_db import ModelConfigDB
-from app.services.ai.model_registry import list_all_models
+from app.schemas.model_config import ProviderType
+from app.services.ai.model_registry import (
+    get_available_providers,
+    list_all_models,
+    list_models_for_provider,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -30,6 +37,14 @@ router = APIRouter(tags=["models"])
 
 
 # ── Schémas ───────────────────────────────────────────────────────────────────
+
+class ProviderInfo(BaseModel):
+    """Informations sur un provider IA détecté au démarrage."""
+    provider_type: str
+    display_name: str
+    available: bool
+    model_count: int
+
 
 class ModelSelectRequest(BaseModel):
     model_id: str
@@ -55,16 +70,40 @@ class ModelsRefreshResponse(BaseModel):
 
 # ── Endpoints ─────────────────────────────────────────────────────────────────
 
-@router.get("/models", response_model=list[dict])
-async def get_models() -> list[dict]:
-    """Liste tous les modèles disponibles sur les providers configurés en environnement."""
-    models = list_all_models()
+@router.get("/providers", response_model=list[ProviderInfo])
+async def list_providers() -> list[dict]:
+    """Liste tous les providers IA avec leur disponibilité.
+
+    Un provider est disponible si la variable d'environnement correspondante
+    est présente dans les secrets HuggingFace. Aucune clé n'est exposée.
+    """
+    return get_available_providers()
+
+
+@router.get("/providers/{provider_type}/models", response_model=list[dict])
+async def get_provider_models(provider_type: str) -> list[dict]:
+    """Liste les modèles disponibles pour un provider spécifique."""
+    try:
+        ptype = ProviderType(provider_type)
+    except ValueError:
+        raise HTTPException(
+            status_code=404,
+            detail=f"Provider inconnu : {provider_type}. "
+                   f"Valeurs acceptées : {[p.value for p in ProviderType]}",
+        )
+    try:
+        models = list_models_for_provider(ptype)
+    except RuntimeError as exc:
+        raise HTTPException(status_code=503, detail=str(exc))
+    except Exception as exc:
+        logger.warning("Erreur listing models", extra={"provider": provider_type, "error": str(exc)})
+        raise HTTPException(status_code=502, detail=f"Erreur provider : {exc}")
     return [m.model_dump() for m in models]
 
 
 @router.post("/models/refresh", response_model=ModelsRefreshResponse)
 async def refresh_models() -> ModelsRefreshResponse:
-    """Force la mise à jour de la liste des modèles (vide le cache implicite)."""
+    """Force la mise à jour de la liste agrégée de tous les modèles disponibles."""
     models = list_all_models()
     return ModelsRefreshResponse(
         models=[m.model_dump() for m in models],

@@ -480,25 +480,63 @@ except:
 
 ---
 
-## 9. Modèle Google AI — sélection dynamique
+## 9. Providers IA — détection dynamique multi-provider
 
-Le modèle n'est jamais hardcodé. Flux :
-1. Utilisateur fournit sa clé API → `POST /api/v1/settings/api-key`
-2. Plateforme appelle Google AI List Models → filtre sur `generateContent` + vision
-3. Utilisateur sélectionne un modèle → `PUT /api/v1/corpora/{id}/model`
-4. Modèle stocké dans `ModelConfig` par corpus (pas dans CorpusProfile)
-5. Chaque appel IA journalise `model_id` + `model_display_name`
+Les clés API vivent dans les **secrets HuggingFace** (variables d'environnement).
+L'interface ne demande **jamais** de clé à l'utilisateur (R06).
+Il n'y a **pas** de variable `AI_PROVIDER` globale : le provider est choisi par corpus.
 
-Entité `ModelConfig` (par corpus) :
+Secrets HuggingFace à configurer :
+```
+GOOGLE_AI_STUDIO_API_KEY = AIza...
+VERTEX_API_KEY            = AQ.Ab...
+VERTEX_SERVICE_ACCOUNT_JSON = {...}   # JSON complet du compte de service
+MISTRAL_API_KEY           = ...
+BASE_URL                  = https://ma-ri-ba-ku-scriptorium-ai.hf.space
+```
+
+### 4 providers supportés
+
+| Provider            | Variable d'env              | Modèles                          |
+|---------------------|-----------------------------|----------------------------------|
+| Google AI Studio    | `GOOGLE_AI_STUDIO_API_KEY`  | Gemini (liste dynamique via API) |
+| Vertex AI clé API   | `VERTEX_API_KEY`            | Gemini (liste dynamique via API) |
+| Vertex Compte serv. | `VERTEX_SERVICE_ACCOUNT_JSON` | Gemini (liste dynamique via API) |
+| Mistral AI          | `MISTRAL_API_KEY`           | pixtral-large-latest, pixtral-12b-2409 (liste statique) |
+
+### Flux de sélection
+
+1. Au démarrage, le backend détecte automatiquement quels providers sont
+   disponibles selon les clés présentes → `GET /api/v1/providers`
+2. L'interface affiche chaque provider avec badge Disponible / Clé manquante
+3. L'utilisateur clique sur un provider disponible → charge ses modèles
+   → `GET /api/v1/providers/{provider_type}/models`
+4. L'utilisateur sélectionne un modèle → `PUT /api/v1/corpora/{id}/model`
+5. Modèle stocké dans `ModelConfig` par corpus (pas dans CorpusProfile)
+6. Chaque appel IA journalise `provider`, `model_id`, `model_display_name`
+
+### Entité `ModelConfig` (par corpus)
+
 ```python
 class ModelConfig(BaseModel):
     corpus_id: str
-    selected_model_id: str          # ID technique Google AI
+    selected_model_id: str
     selected_model_display_name: str
+    provider: ProviderType              # google_ai_studio | vertex_api_key | vertex_service_account | mistral
     supports_vision: bool
     last_fetched_at: datetime
-    available_models: list[dict]    # cache de la liste
+    available_models: list[dict]        # cache sérialisé des ModelInfo
 ```
+
+### Interface `AIProvider` (backend/app/services/ai/base.py)
+
+Chaque provider implémente :
+- `is_configured() → bool`
+- `list_models() → list[ModelInfo]`
+- `generate_content(image_bytes, prompt, model_id) → str`
+
+L'analyseur (`analyzer.py`) appelle `get_provider(model_config.provider).generate_content(…)`
+de façon identique pour tous les providers.
 
 ---
 
@@ -525,9 +563,9 @@ machine_draft → needs_review → reviewed → validated → published
 ## 11. Endpoints API — liste complète
 
 ```
-# Configuration & modèles
-POST   /api/v1/settings/api-key
-GET    /api/v1/models
+# Providers & modèles (détection automatique depuis les secrets HF)
+GET    /api/v1/providers
+GET    /api/v1/providers/{provider_type}/models
 POST   /api/v1/models/refresh
 PUT    /api/v1/corpora/{id}/model
 GET    /api/v1/corpora/{id}/model

@@ -2,6 +2,13 @@ const BASE_URL: string = import.meta.env.VITE_API_URL ?? ''
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
+export interface ProviderInfo {
+  provider_type: string
+  display_name: string
+  available: boolean
+  model_count: number
+}
+
 export interface ModelInfo {
   model_id: string
   display_name: string
@@ -233,8 +240,11 @@ export const listProfiles = (): Promise<CorpusProfile[]> =>
 export const createCorpus = (input: CreateCorpusInput): Promise<Corpus> =>
   post('/api/v1/corpora', input)
 
-export const listModels = (): Promise<ModelInfo[]> =>
-  get('/api/v1/models')
+export const fetchProviders = (): Promise<ProviderInfo[]> =>
+  get('/api/v1/providers')
+
+export const fetchProviderModels = (providerType: string): Promise<ModelInfo[]> =>
+  get(`/api/v1/providers/${providerType}/models`)
 
 export const selectModel = (
   corpusId: string,

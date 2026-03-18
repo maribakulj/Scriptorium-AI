@@ -503,12 +503,11 @@ def _setup_derivative(tmp_path: Path) -> Path:
     return deriv
 
 
-def _make_mock_client(ai_response_text: str) -> MagicMock:
-    mock_response = MagicMock()
-    mock_response.text = ai_response_text
-    mock_client = MagicMock()
-    mock_client.models.generate_content.return_value = mock_response
-    return mock_client
+def _make_mock_provider(ai_response_text: str) -> MagicMock:
+    """Retourne un mock AIProvider dont generate_content() retourne ai_response_text."""
+    mock_provider = MagicMock()
+    mock_provider.generate_content.return_value = ai_response_text
+    return mock_provider
 
 
 def test_run_primary_analysis_success(tmp_path):
@@ -521,9 +520,9 @@ def test_run_primary_analysis_success(tmp_path):
     model_cfg = _make_model_config()
     image_info = _make_image_info()
 
-    mock_client = _make_mock_client(_valid_ai_json())
+    mock_provider = _make_mock_provider(_valid_ai_json())
 
-    with patch("app.services.ai.analyzer.build_client", return_value=mock_client):
+    with patch("app.services.ai.analyzer.get_provider", return_value=mock_provider):
         result = run_primary_analysis(
             derivative_image_path=deriv_path,
             corpus_profile=profile,
@@ -551,9 +550,9 @@ def test_run_primary_analysis_files_created(tmp_path):
     _setup_prompt_file(tmp_path, prompt_rel)
     deriv_path = _setup_derivative(tmp_path)
 
-    mock_client = _make_mock_client(_valid_ai_json())
+    mock_provider = _make_mock_provider(_valid_ai_json())
 
-    with patch("app.services.ai.analyzer.build_client", return_value=mock_client):
+    with patch("app.services.ai.analyzer.get_provider", return_value=mock_provider):
         run_primary_analysis(
             derivative_image_path=deriv_path,
             corpus_profile=_make_corpus_profile(prompt_rel_path=prompt_rel),
@@ -579,9 +578,9 @@ def test_run_primary_analysis_raw_written_before_parse(tmp_path):
     _setup_prompt_file(tmp_path, prompt_rel)
     deriv_path = _setup_derivative(tmp_path)
 
-    mock_client = _make_mock_client("this is definitely not json {{{{")
+    mock_provider = _make_mock_provider("this is definitely not json {{{{")
 
-    with patch("app.services.ai.analyzer.build_client", return_value=mock_client):
+    with patch("app.services.ai.analyzer.get_provider", return_value=mock_provider):
         with pytest.raises(ParseError):
             run_primary_analysis(
                 derivative_image_path=deriv_path,
@@ -617,9 +616,9 @@ def test_run_primary_analysis_processing_info(tmp_path):
         prompt_rel_path=prompt_rel,
     )
     model_cfg = _make_model_config()
-    mock_client = _make_mock_client(_valid_ai_json())
+    mock_provider = _make_mock_provider(_valid_ai_json())
 
-    with patch("app.services.ai.analyzer.build_client", return_value=mock_client):
+    with patch("app.services.ai.analyzer.get_provider", return_value=mock_provider):
         result = run_primary_analysis(
             derivative_image_path=deriv_path,
             corpus_profile=profile,
@@ -647,9 +646,9 @@ def test_run_primary_analysis_image_dict(tmp_path):
     deriv_path = _setup_derivative(tmp_path)
 
     image_info = _make_image_info()
-    mock_client = _make_mock_client(_valid_ai_json())
+    mock_provider = _make_mock_provider(_valid_ai_json())
 
-    with patch("app.services.ai.analyzer.build_client", return_value=mock_client):
+    with patch("app.services.ai.analyzer.get_provider", return_value=mock_provider):
         result = run_primary_analysis(
             derivative_image_path=deriv_path,
             corpus_profile=_make_corpus_profile(prompt_rel_path=prompt_rel),
@@ -675,9 +674,9 @@ def test_run_primary_analysis_regions_in_layout(tmp_path):
     _setup_prompt_file(tmp_path, prompt_rel)
     deriv_path = _setup_derivative(tmp_path)
 
-    mock_client = _make_mock_client(_valid_ai_json())
+    mock_provider = _make_mock_provider(_valid_ai_json())
 
-    with patch("app.services.ai.analyzer.build_client", return_value=mock_client):
+    with patch("app.services.ai.analyzer.get_provider", return_value=mock_provider):
         result = run_primary_analysis(
             derivative_image_path=deriv_path,
             corpus_profile=_make_corpus_profile(prompt_rel_path=prompt_rel),
@@ -703,10 +702,10 @@ def test_run_primary_analysis_prompt_rendered_with_profile(tmp_path):
     tpl.write_text("Profil: {{profile_label}} | Script: {{script_type}}")
     deriv_path = _setup_derivative(tmp_path)
 
-    mock_client = _make_mock_client(_valid_ai_json())
+    mock_provider = _make_mock_provider(_valid_ai_json())
     profile = _make_corpus_profile(prompt_rel_path=prompt_rel)
 
-    with patch("app.services.ai.analyzer.build_client", return_value=mock_client):
+    with patch("app.services.ai.analyzer.get_provider", return_value=mock_provider):
         run_primary_analysis(
             derivative_image_path=deriv_path,
             corpus_profile=profile,
@@ -722,9 +721,8 @@ def test_run_primary_analysis_prompt_rendered_with_profile(tmp_path):
         )
 
     # Vérifier que generate_content a été appelé avec le prompt rendu
-    call_args = mock_client.models.generate_content.call_args
-    contents = call_args.kwargs.get("contents") or call_args.args[0] if call_args.args else call_args.kwargs["contents"]
-    prompt_sent = contents[-1]  # le prompt est le dernier élément
+    call_args = mock_provider.generate_content.call_args
+    prompt_sent = call_args.kwargs.get("prompt") or call_args.args[1]
     assert "Manuscrit médiéval enluminé" in prompt_sent
     assert "caroline" in prompt_sent
     assert "{{profile_label}}" not in prompt_sent
@@ -735,9 +733,9 @@ def test_run_primary_analysis_prompt_not_found_raises(tmp_path):
     deriv_path = _setup_derivative(tmp_path)
     profile = _make_corpus_profile(prompt_rel_path="prompts/nonexistent/prompt.txt")
 
-    mock_client = _make_mock_client(_valid_ai_json())
+    mock_provider = _make_mock_provider(_valid_ai_json())
 
-    with patch("app.services.ai.analyzer.build_client", return_value=mock_client):
+    with patch("app.services.ai.analyzer.get_provider", return_value=mock_provider):
         with pytest.raises(FileNotFoundError):
             run_primary_analysis(
                 derivative_image_path=deriv_path,
@@ -760,9 +758,9 @@ def test_run_primary_analysis_ocr_in_result(tmp_path):
     _setup_prompt_file(tmp_path, prompt_rel)
     deriv_path = _setup_derivative(tmp_path)
 
-    mock_client = _make_mock_client(_valid_ai_json())
+    mock_provider = _make_mock_provider(_valid_ai_json())
 
-    with patch("app.services.ai.analyzer.build_client", return_value=mock_client):
+    with patch("app.services.ai.analyzer.get_provider", return_value=mock_provider):
         result = run_primary_analysis(
             derivative_image_path=deriv_path,
             corpus_profile=_make_corpus_profile(prompt_rel_path=prompt_rel),
@@ -788,9 +786,9 @@ def test_run_primary_analysis_editorial_status_machine_draft(tmp_path):
     _setup_prompt_file(tmp_path, prompt_rel)
     deriv_path = _setup_derivative(tmp_path)
 
-    mock_client = _make_mock_client(_valid_ai_json())
+    mock_provider = _make_mock_provider(_valid_ai_json())
 
-    with patch("app.services.ai.analyzer.build_client", return_value=mock_client):
+    with patch("app.services.ai.analyzer.get_provider", return_value=mock_provider):
         result = run_primary_analysis(
             derivative_image_path=deriv_path,
             corpus_profile=_make_corpus_profile(prompt_rel_path=prompt_rel),
@@ -814,9 +812,9 @@ def test_run_primary_analysis_master_json_content(tmp_path):
     _setup_prompt_file(tmp_path, prompt_rel)
     deriv_path = _setup_derivative(tmp_path)
 
-    mock_client = _make_mock_client(_valid_ai_json())
+    mock_provider = _make_mock_provider(_valid_ai_json())
 
-    with patch("app.services.ai.analyzer.build_client", return_value=mock_client):
+    with patch("app.services.ai.analyzer.get_provider", return_value=mock_provider):
         run_primary_analysis(
             derivative_image_path=deriv_path,
             corpus_profile=_make_corpus_profile(prompt_rel_path=prompt_rel),
@@ -850,9 +848,9 @@ def test_run_primary_analysis_invalid_region_skipped(tmp_path):
         ]},
         "ocr": {},
     })
-    mock_client = _make_mock_client(response_with_bad_region)
+    mock_provider = _make_mock_provider(response_with_bad_region)
 
-    with patch("app.services.ai.analyzer.build_client", return_value=mock_client):
+    with patch("app.services.ai.analyzer.get_provider", return_value=mock_provider):
         result = run_primary_analysis(
             derivative_image_path=deriv_path,
             corpus_profile=_make_corpus_profile(prompt_rel_path=prompt_rel),

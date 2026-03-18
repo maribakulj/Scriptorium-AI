@@ -1,24 +1,21 @@
 """
-Analyse primaire IA d'un folio : appel Google AI + écriture master.json (R02, R04, R05).
+Analyse primaire IA d'un folio : appel provider IA + écriture master.json (R02, R04, R05).
 
 Point d'entrée : run_primary_analysis().
-Chaîne : prompt_loader → client_factory → Google AI → master_writer → response_parser.
+Chaîne : prompt_loader → model_registry → provider.generate_content → master_writer → response_parser.
 """
 # 1. stdlib
 import logging
 from datetime import datetime, timezone
 from pathlib import Path
 
-# 2. third-party
-from google.genai import types
-
 # 3. local
 from app.schemas.corpus_profile import CorpusProfile
 from app.schemas.image import ImageDerivativeInfo
 from app.schemas.model_config import ModelConfig
 from app.schemas.page_master import EditorialInfo, EditorialStatus, PageMaster, ProcessingInfo
-from app.services.ai.client_factory import build_client
 from app.services.ai.master_writer import write_gemini_raw, write_master_json
+from app.services.ai.model_registry import get_provider
 from app.services.ai.prompt_loader import load_and_render_prompt
 from app.services.ai.response_parser import ParseError, parse_ai_response  # noqa: F401
 
@@ -42,6 +39,9 @@ def run_primary_analysis(
 
     Respecte R05 : gemini_raw.json est toujours écrit en premier, même en cas
     d'erreur de parsing. master.json n'est écrit QUE si le parsing a réussi.
+
+    Le provider est sélectionné dynamiquement depuis model_config.provider ;
+    Google AI Studio, Vertex et Mistral sont supportés de façon identique.
 
     Args:
         derivative_image_path: chemin vers le JPEG dérivé (1500px max).
@@ -87,23 +87,22 @@ def run_primary_analysis(
     # ── 2. Chargement de l'image dérivée ────────────────────────────────────
     jpeg_bytes = derivative_image_path.read_bytes()
 
-    # ── 3. Appel Google AI ──────────────────────────────────────────────────
-    client = build_client(model_config.provider)
-    image_part = types.Part.from_bytes(data=jpeg_bytes, mime_type="image/jpeg")
-
+    # ── 3. Appel IA via le provider sélectionné ─────────────────────────────
+    provider = get_provider(model_config.provider)
     logger.info(
-        "Appel Google AI",
+        "Appel IA",
         extra={
+            "provider": model_config.provider.value,
             "model": model_config.selected_model_id,
             "corpus": corpus_slug,
             "folio": folio_label,
         },
     )
-    response = client.models.generate_content(
-        model=model_config.selected_model_id,
-        contents=[image_part, prompt_text],
+    raw_text = provider.generate_content(
+        image_bytes=jpeg_bytes,
+        prompt=prompt_text,
+        model_id=model_config.selected_model_id,
     )
-    raw_text: str = response.text or ""
 
     # ── 4. Écriture gemini_raw.json TOUJOURS EN PREMIER (R05) ───────────────
     write_gemini_raw(raw_text, raw_path)
