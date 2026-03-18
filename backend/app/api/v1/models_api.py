@@ -1,14 +1,13 @@
 """
 Endpoints de gestion des modèles IA (R10 — préfixe /api/v1/).
 
-POST /api/v1/settings/api-key       → valide la clé sans la stocker (R06)
-GET  /api/v1/models                 → liste les modèles disponibles
+GET  /api/v1/models                 → liste les modèles disponibles via les credentials env
 POST /api/v1/models/refresh         → force la mise à jour de la liste
 PUT  /api/v1/corpora/{id}/model     → associe un modèle à un corpus
 GET  /api/v1/corpora/{id}/model     → modèle actif d'un corpus
 
-Règle R06 : la clé API ne transite jamais vers la BDD — elle reste
-            exclusivement dans les variables d'environnement.
+Les clés API vivent exclusivement dans les secrets HuggingFace (variables d'environnement).
+L'interface ne demande jamais de clé à l'utilisateur (R06).
 """
 # 1. stdlib
 import logging
@@ -32,18 +31,6 @@ router = APIRouter(tags=["models"])
 
 # ── Schémas ───────────────────────────────────────────────────────────────────
 
-class ApiKeyRequest(BaseModel):
-    api_key: str
-    provider_type: str = "google_ai_studio"
-
-
-class ApiKeyResponse(BaseModel):
-    valid: bool
-    provider: str
-    model_count: int
-    error: str | None = None
-
-
 class ModelSelectRequest(BaseModel):
     model_id: str
     provider_type: str
@@ -66,46 +53,11 @@ class ModelsRefreshResponse(BaseModel):
     refreshed_at: datetime
 
 
-# ── Validation de clé API (isolé pour les tests) ──────────────────────────────
-
-def _validate_api_key(api_key: str, provider_type: str) -> tuple[bool, int, str | None]:
-    """Essaie de lister les modèles avec la clé fournie.
-
-    Retourne (valid, model_count, error_message).
-    Fonction isolée au niveau module pour être patchable dans les tests.
-    """
-    try:
-        from google import genai  # import local pour éviter l'import top-level
-        client = genai.Client(api_key=api_key)
-        raw_models = list(client.models.list())
-        vision_count = sum(
-            1 for m in raw_models if "gemini" in (getattr(m, "name", "") or "").lower()
-        )
-        return True, vision_count, None
-    except Exception as exc:
-        return False, 0, str(exc)
-
-
 # ── Endpoints ─────────────────────────────────────────────────────────────────
-
-@router.post("/settings/api-key", response_model=ApiKeyResponse)
-async def validate_api_key(body: ApiKeyRequest) -> ApiKeyResponse:
-    """Valide qu'une clé API fonctionne (appel list_models).
-
-    La clé N'EST PAS stockée (R06). Elle reste dans les variables d'env.
-    """
-    valid, count, error = _validate_api_key(body.api_key, body.provider_type)
-    return ApiKeyResponse(
-        valid=valid,
-        provider=body.provider_type,
-        model_count=count,
-        error=error,
-    )
-
 
 @router.get("/models", response_model=list[dict])
 async def get_models() -> list[dict]:
-    """Liste tous les modèles disponibles sur les providers configurés."""
+    """Liste tous les modèles disponibles sur les providers configurés en environnement."""
     models = list_all_models()
     return [m.model_dump() for m in models]
 

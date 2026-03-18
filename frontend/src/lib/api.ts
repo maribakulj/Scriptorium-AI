@@ -2,13 +2,6 @@ const BASE_URL: string = import.meta.env.VITE_API_URL ?? ''
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
-export interface ApiKeyResponse {
-  valid: boolean
-  provider: string
-  model_count: number
-  error: string | null
-}
-
 export interface ModelInfo {
   model_id: string
   display_name: string
@@ -239,9 +232,6 @@ export const listProfiles = (): Promise<CorpusProfile[]> =>
 
 export const createCorpus = (input: CreateCorpusInput): Promise<Corpus> =>
   post('/api/v1/corpora', input)
-
-export const validateApiKey = (apiKey: string): Promise<ApiKeyResponse> =>
-  post('/api/v1/settings/api-key', { api_key: apiKey })
 
 export const listModels = (): Promise<ModelInfo[]> =>
   get('/api/v1/models')

@@ -1,12 +1,11 @@
 """
-Tests des endpoints /api/v1/models et /api/v1/settings/api-key (Sprint 4 — Session B).
+Tests des endpoints /api/v1/models (Sprint 4 — Session B).
 
 Stratégie :
-  - Appels Google AI mockés via monkeypatch sur _validate_api_key et list_all_models
+  - Appels Google AI mockés via monkeypatch sur list_all_models
   - BDD SQLite en mémoire pour les endpoints qui touchent la BDD (PUT/GET model)
 
 Vérifie :
-- POST /api/v1/settings/api-key → valid/invalid
 - GET  /api/v1/models            → liste mockée
 - POST /api/v1/models/refresh    → mise à jour + timestamp
 - PUT  /api/v1/corpora/{id}/model → création + mise à jour
@@ -63,83 +62,17 @@ async def _make_corpus(db, slug="models-test"):
 
 
 # ---------------------------------------------------------------------------
-# POST /api/v1/settings/api-key
+# POST /api/v1/settings/api-key → supprimé (clés dans secrets HF, R06)
 # ---------------------------------------------------------------------------
 
 @pytest.mark.asyncio
-async def test_api_key_valid(async_client, monkeypatch):
-    monkeypatch.setattr(
-        models_api_module, "_validate_api_key",
-        lambda key, provider: (True, 3, None),
-    )
+async def test_settings_api_key_endpoint_removed(async_client):
+    """L'endpoint /api/v1/settings/api-key ne doit plus exister (404 ou 405)."""
     response = await async_client.post(
         "/api/v1/settings/api-key",
-        json={"api_key": "AIza-test-key", "provider_type": "google_ai_studio"},
+        json={"api_key": "AIza-test", "provider_type": "google_ai_studio"},
     )
-    assert response.status_code == 200
-    data = response.json()
-    assert data["valid"] is True
-    assert data["model_count"] == 3
-    assert data["provider"] == "google_ai_studio"
-    assert data["error"] is None
-
-
-@pytest.mark.asyncio
-async def test_api_key_invalid(async_client, monkeypatch):
-    monkeypatch.setattr(
-        models_api_module, "_validate_api_key",
-        lambda key, provider: (False, 0, "API key not valid"),
-    )
-    response = await async_client.post(
-        "/api/v1/settings/api-key",
-        json={"api_key": "bad-key", "provider_type": "google_ai_studio"},
-    )
-    assert response.status_code == 200
-    data = response.json()
-    assert data["valid"] is False
-    assert data["model_count"] == 0
-    assert data["error"] is not None
-
-
-@pytest.mark.asyncio
-async def test_api_key_not_stored_in_db(async_client, db_session, monkeypatch):
-    """La clé ne doit apparaître nulle part dans la BDD (R06)."""
-    monkeypatch.setattr(
-        models_api_module, "_validate_api_key",
-        lambda key, provider: (True, 2, None),
-    )
-    await async_client.post(
-        "/api/v1/settings/api-key",
-        json={"api_key": "secret-key-AIza123", "provider_type": "google_ai_studio"},
-    )
-    # Vérifie que la clé n'est pas dans model_configs
-    from sqlalchemy import text
-    result = await db_session.execute(text("SELECT * FROM model_configs"))
-    rows = result.fetchall()
-    for row in rows:
-        row_str = str(row)
-        assert "secret-key-AIza123" not in row_str
-
-
-@pytest.mark.asyncio
-async def test_api_key_missing_body_422(async_client):
-    response = await async_client.post("/api/v1/settings/api-key", json={})
-    assert response.status_code == 422
-
-
-@pytest.mark.asyncio
-async def test_api_key_default_provider_type(async_client, monkeypatch):
-    """provider_type est optionnel (default: google_ai_studio)."""
-    monkeypatch.setattr(
-        models_api_module, "_validate_api_key",
-        lambda key, provider: (True, 1, None),
-    )
-    response = await async_client.post(
-        "/api/v1/settings/api-key",
-        json={"api_key": "AIza-test"},
-    )
-    assert response.status_code == 200
-    assert response.json()["provider"] == "google_ai_studio"
+    assert response.status_code in (404, 405)
 
 
 # ---------------------------------------------------------------------------

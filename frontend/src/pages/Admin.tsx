@@ -3,7 +3,6 @@ import {
   fetchCorpora,
   listProfiles,
   createCorpus,
-  validateApiKey,
   listModels,
   selectModel,
   ingestImages,
@@ -202,41 +201,27 @@ interface ModelSectionProps {
 }
 
 function ModelSection({ corpora, selectedCorpusId, onSelectCorpus }: ModelSectionProps) {
-  const [apiKey, setApiKey] = useState('')
-  const [validating, setValidating] = useState(false)
-  const [apiKeyValid, setApiKeyValid] = useState(false)
-  const [validateError, setValidateError] = useState<string | null>(null)
-  const [validateInfo, setValidateInfo] = useState<string | null>(null)
   const [models, setModels] = useState<ModelInfo[]>([])
+  const [loadingModels, setLoadingModels] = useState(true)
+  const [loadError, setLoadError] = useState<string | null>(null)
   const [selectedModelId, setSelectedModelId] = useState('')
   const [savingModel, setSavingModel] = useState(false)
   const [saveError, setSaveError] = useState<string | null>(null)
   const [saveSuccess, setSaveSuccess] = useState<string | null>(null)
 
-  const handleValidate = async (e: FormEvent) => {
-    e.preventDefault()
-    setValidateError(null)
-    setValidateInfo(null)
-    setApiKeyValid(false)
-    setModels([])
-    setValidating(true)
-    try {
-      const resp = await validateApiKey(apiKey)
-      if (resp.valid) {
-        setApiKeyValid(true)
-        setValidateInfo(`Clé valide — ${resp.model_count} modèle(s) détecté(s)`)
-        const ms = await listModels()
+  useEffect(() => {
+    setLoadingModels(true)
+    setLoadError(null)
+    listModels()
+      .then((ms) => {
         setModels(ms)
         if (ms.length > 0) setSelectedModelId(ms[0].model_id)
-      } else {
-        setValidateError(resp.error ?? 'Clé API invalide')
-      }
-    } catch (err) {
-      setValidateError(err instanceof Error ? err.message : 'Erreur inconnue')
-    } finally {
-      setValidating(false)
-    }
-  }
+      })
+      .catch((err) => {
+        setLoadError(err instanceof Error ? err.message : 'Erreur inconnue')
+      })
+      .finally(() => setLoadingModels(false))
+  }, [])
 
   const handleSelectModel = async (e: FormEvent) => {
     e.preventDefault()
@@ -266,35 +251,25 @@ function ModelSection({ corpora, selectedCorpusId, onSelectCorpus }: ModelSectio
       <h2 className="text-lg font-semibold text-stone-800 mb-6">Configurer le modèle IA</h2>
       <CorpusSelector corpora={corpora} value={selectedCorpusId} onChange={onSelectCorpus} />
 
-      {/* Validation clé API */}
-      <form onSubmit={(e) => void handleValidate(e)} className="space-y-4 max-w-md mb-8">
-        <div>
-          <label className="block text-xs font-semibold text-stone-500 uppercase tracking-wide mb-1">
-            Clé API Google AI
-          </label>
-          <input
-            type="password"
-            value={apiKey}
-            onChange={(e) => setApiKey(e.target.value)}
-            required
-            autoComplete="off"
-            placeholder="AIza…"
-            className="border border-stone-300 rounded px-3 py-2 text-sm w-full font-mono focus:outline-none focus:ring-2 focus:ring-stone-400"
-          />
-        </div>
-        {validateError && <ErrorMsg message={validateError} />}
-        {validateInfo && <SuccessMsg message={validateInfo} />}
-        <button
-          type="submit"
-          disabled={validating || !apiKey}
-          className="bg-stone-800 text-white px-5 py-2 rounded text-sm font-medium hover:bg-stone-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
-        >
-          {validating ? 'Vérification…' : 'Vérifier la clé'}
-        </button>
-      </form>
+      {loadingModels && (
+        <p className="text-sm text-stone-400">Chargement des modèles disponibles…</p>
+      )}
 
-      {/* Sélection du modèle */}
-      {apiKeyValid && models.length > 0 && (
+      {!loadingModels && loadError && (
+        <ErrorMsg message={loadError} />
+      )}
+
+      {!loadingModels && !loadError && models.length === 0 && (
+        <p className="text-sm text-amber-600 bg-amber-50 border border-amber-200 rounded px-3 py-2">
+          Aucun modèle détecté. Vérifiez que les secrets{' '}
+          <code className="font-mono">AI_PROVIDER</code> et{' '}
+          <code className="font-mono">VERTEX_API_KEY</code> (ou{' '}
+          <code className="font-mono">GOOGLE_AI_STUDIO_API_KEY</code>) sont bien configurés
+          dans les secrets HuggingFace.
+        </p>
+      )}
+
+      {!loadingModels && models.length > 0 && (
         <form onSubmit={(e) => void handleSelectModel(e)} className="space-y-4 max-w-md">
           <div>
             <label className="block text-xs font-semibold text-stone-500 uppercase tracking-wide mb-1">
