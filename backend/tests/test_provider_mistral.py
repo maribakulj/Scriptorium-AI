@@ -164,3 +164,19 @@ def test_generate_content_empty_response(monkeypatch):
 
     result = MistralProvider().generate_content(b"img", "prompt", "pixtral-large-latest")
     assert result == ""
+
+
+def test_generate_content_v0_package_raises_runtime_error(monkeypatch):
+    """Si mistralai est installé en v0.x (pas de classe Mistral), lève RuntimeError avec un message clair."""
+    monkeypatch.setenv("MISTRAL_API_KEY", "test-key")
+
+    import sys
+    import types as _types
+
+    # Simuler mistralai v0.x : le module existe mais n'a pas la classe Mistral
+    fake_mistralai_v0 = _types.ModuleType("mistralai")
+    # Pas d'attribut Mistral → from mistralai import Mistral lèvera ImportError
+    monkeypatch.setitem(sys.modules, "mistralai", fake_mistralai_v0)
+
+    with pytest.raises(RuntimeError, match="version 0.x"):
+        MistralProvider().generate_content(b"img", "prompt", "pixtral-large-latest")

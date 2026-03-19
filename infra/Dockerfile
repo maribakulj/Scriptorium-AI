@@ -35,7 +35,7 @@ WORKDIR /app
 COPY backend/pyproject.toml /tmp/build/
 RUN mkdir -p /tmp/build/app \
     && touch /tmp/build/app/__init__.py \
-    && pip install --no-cache-dir /tmp/build/ \
+    && pip install --no-cache-dir --upgrade /tmp/build/ \
     && rm -rf /tmp/build
 
 # ── Code source backend ────────────────────────────────────────────────────

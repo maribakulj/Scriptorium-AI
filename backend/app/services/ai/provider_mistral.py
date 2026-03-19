@@ -69,11 +69,23 @@ class MistralProvider(AIProvider):
 
         try:
             from mistralai import Mistral  # v1.x — import local
-        except ImportError as exc:
-            raise ImportError(
-                "Impossible d'importer 'Mistral' depuis mistralai. "
-                "Vérifiez que le package est installé : pip install 'mistralai>=1.0'"
-            ) from exc
+        except ImportError:
+            # Détecter si c'est mistralai v0.x (ne supporte pas la vision / Pixtral)
+            try:
+                import mistralai as _ms_pkg  # noqa: F401
+                _v0_present = True
+            except ImportError:
+                _v0_present = False
+            if _v0_present:
+                raise RuntimeError(
+                    "Le package mistralai est installé en version 0.x qui ne supporte pas "
+                    "la vision (Pixtral). Reconstruisez le container Docker pour obtenir "
+                    "mistralai>=1.0 : `docker build --no-cache ...`"
+                )
+            raise RuntimeError(
+                "Le package mistralai n'est pas installé. "
+                "Ajoutez 'mistralai>=1.0' aux dépendances et reconstruisez le container."
+            )
 
         api_key = os.environ[_ENV_KEY]
         client = Mistral(api_key=api_key)
