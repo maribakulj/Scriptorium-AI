@@ -11,7 +11,7 @@ from contextlib import asynccontextmanager
 from pathlib import Path
 
 # 2. third-party
-from fastapi import FastAPI
+from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, RedirectResponse
 
@@ -94,6 +94,8 @@ _STATIC_DIR = Path("/app/static")
 @app.get("/{full_path:path}", include_in_schema=False, response_model=None)
 async def serve_frontend(full_path: str) -> FileResponse | RedirectResponse:
     """En production sert le frontend React (SPA). En dev redirige vers /docs."""
+    if full_path.startswith("api/"):
+        raise HTTPException(status_code=404, detail=f"Endpoint not found: /{full_path}")
     if _STATIC_DIR.is_dir():
         candidate = _STATIC_DIR / full_path
         if candidate.is_file():

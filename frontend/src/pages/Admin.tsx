@@ -1,11 +1,15 @@
-import { type FormEvent, useEffect, useState } from 'react'
+import { type FormEvent, useEffect, useRef, useState } from 'react'
 import {
   fetchCorpora,
+  fetchManuscripts,
+  fetchPages,
   listProfiles,
   createCorpus,
+  deleteCorpus,
   fetchProviders,
   fetchProviderModels,
   selectModel,
+  getCorpusModel,
   ingestImages,
   ingestManifest,
   ingestFiles,
@@ -14,53 +18,17 @@ import {
   retryJob,
   type Corpus,
   type CorpusProfile,
+  type CorpusModelConfig,
   type ProviderInfo,
   type ModelInfo,
   type Job,
   type CreateCorpusInput,
 } from '../lib/api.ts'
 
-type AdminTab = 'corpus' | 'model' | 'ingest' | 'run'
 type IngestSubTab = 'urls' | 'manifest' | 'files'
 
 interface Props {
   onHome: () => void
-}
-
-// ── CorpusSelector ─────────────────────────────────────────────────────────
-
-interface CorpusSelectorProps {
-  corpora: Corpus[]
-  value: string
-  onChange: (id: string) => void
-}
-
-function CorpusSelector({ corpora, value, onChange }: CorpusSelectorProps) {
-  if (corpora.length === 0) {
-    return (
-      <p className="text-sm text-amber-600 bg-amber-50 border border-amber-200 rounded px-3 py-2 mb-6">
-        Aucun corpus. Créez-en un dans l'onglet « Nouveau corpus ».
-      </p>
-    )
-  }
-  return (
-    <div className="mb-6">
-      <label className="block text-xs font-semibold text-stone-500 uppercase tracking-wide mb-1">
-        Corpus cible
-      </label>
-      <select
-        value={value}
-        onChange={(e) => onChange(e.target.value)}
-        className="border border-stone-300 rounded px-3 py-2 text-sm w-full max-w-sm bg-white focus:outline-none focus:ring-2 focus:ring-stone-400"
-      >
-        {corpora.map((c) => (
-          <option key={c.id} value={c.id}>
-            {c.title} ({c.slug})
-          </option>
-        ))}
-      </select>
-    </div>
-  )
 }
 
 // ── Feedback helpers ───────────────────────────────────────────────────────
@@ -81,19 +49,26 @@ function SuccessMsg({ message }: { message: string }) {
   )
 }
 
-// ── Section 1 — Créer un corpus ─────────────────────────────────────────────
+// ── SectionCard ───────────────────────────────────────────────────────────
 
-interface CreateCorpusSectionProps {
+function SectionCard({ title, children }: { title: string; children: React.ReactNode }) {
+  return (
+    <div className="bg-white border border-stone-200 rounded-lg p-6 mb-4">
+      <h3 className="text-base font-semibold text-stone-800 mb-4">{title}</h3>
+      {children}
+    </div>
+  )
+}
+
+// ── CreateCorpusPanel ─────────────────────────────────────────────────────
+
+interface CreateCorpusPanelProps {
   onCreated: (corpus: Corpus) => void
 }
 
-function CreateCorpusSection({ onCreated }: CreateCorpusSectionProps) {
+function CreateCorpusPanel({ onCreated }: CreateCorpusPanelProps) {
   const [profiles, setProfiles] = useState<CorpusProfile[]>([])
-  const [form, setForm] = useState<CreateCorpusInput>({
-    slug: '',
-    title: '',
-    profile_id: '',
-  })
+  const [form, setForm] = useState<CreateCorpusInput>({ slug: '', title: '', profile_id: '' })
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [success, setSuccess] = useState<string | null>(null)
@@ -114,7 +89,7 @@ function CreateCorpusSection({ onCreated }: CreateCorpusSectionProps) {
     setLoading(true)
     try {
       const corpus = await createCorpus(form)
-      setSuccess(`Corpus « ${corpus.title} » créé (id : ${corpus.id})`)
+      setSuccess(`Corpus « ${corpus.title} » créé.`)
       setForm((f) => ({ ...f, slug: '', title: '' }))
       onCreated(corpus)
     } catch (err) {
@@ -128,15 +103,13 @@ function CreateCorpusSection({ onCreated }: CreateCorpusSectionProps) {
     'border border-stone-300 rounded px-3 py-2 text-sm w-full focus:outline-none focus:ring-2 focus:ring-stone-400'
 
   return (
-    <section>
-      <h2 className="text-lg font-semibold text-stone-800 mb-6">Créer un corpus</h2>
-      <form onSubmit={(e) => void handleSubmit(e)} className="space-y-4 max-w-md">
+    <div className="max-w-lg">
+      <h2 className="text-xl font-semibold text-stone-800 mb-6">Créer un corpus</h2>
+      <form onSubmit={(e) => void handleSubmit(e)} className="space-y-4">
         <div>
           <label className="block text-xs font-semibold text-stone-500 uppercase tracking-wide mb-1">
             Slug{' '}
-            <span className="text-stone-400 font-normal normal-case">
-              (identifiant unique, sans espaces)
-            </span>
+            <span className="text-stone-400 font-normal normal-case">(identifiant unique, sans espaces)</span>
           </label>
           <input
             type="text"
@@ -190,38 +163,36 @@ function CreateCorpusSection({ onCreated }: CreateCorpusSectionProps) {
           {loading ? 'Création…' : 'Créer le corpus'}
         </button>
       </form>
-    </section>
+    </div>
   )
 }
 
-// ── Section 2 — Configurer le modèle IA ────────────────────────────────────
+// ── ModelPanel ────────────────────────────────────────────────────────────
 
-interface ModelSectionProps {
-  corpora: Corpus[]
-  selectedCorpusId: string
-  onSelectCorpus: (id: string) => void
+interface ModelPanelProps {
+  corpusId: string
+  onSaved: () => void
 }
 
-function ModelSection({ corpora, selectedCorpusId, onSelectCorpus }: ModelSectionProps) {
-  // Étape 1 : providers détectés automatiquement
+function ModelPanel({ corpusId, onSaved }: ModelPanelProps) {
   const [providers, setProviders] = useState<ProviderInfo[]>([])
   const [loadingProviders, setLoadingProviders] = useState(true)
   const [providersError, setProvidersError] = useState<string | null>(null)
 
-  // Étape 2 : provider sélectionné → charge ses modèles
   const [selectedProvider, setSelectedProvider] = useState<string>('')
   const [models, setModels] = useState<ModelInfo[]>([])
   const [loadingModels, setLoadingModels] = useState(false)
   const [modelsError, setModelsError] = useState<string | null>(null)
   const [selectedModelId, setSelectedModelId] = useState('')
 
-  // Étape 3 : enregistrement
+  const [currentModel, setCurrentModel] = useState<CorpusModelConfig | null>(null)
   const [savingModel, setSavingModel] = useState(false)
   const [saveError, setSaveError] = useState<string | null>(null)
   const [saveSuccess, setSaveSuccess] = useState<string | null>(null)
 
-  // Charge la liste des providers au montage
+  // Load current model config and providers on mount
   useEffect(() => {
+    void getCorpusModel(corpusId).then(setCurrentModel)
     setLoadingProviders(true)
     setProvidersError(null)
     fetchProviders()
@@ -234,9 +205,9 @@ function ModelSection({ corpora, selectedCorpusId, onSelectCorpus }: ModelSectio
         setProvidersError(err instanceof Error ? err.message : 'Erreur inconnue')
       })
       .finally(() => setLoadingProviders(false))
-  }, [])
+  }, [corpusId])
 
-  // Charge les modèles quand le provider change
+  // Load models when provider changes
   useEffect(() => {
     if (!selectedProvider) return
     setModels([])
@@ -261,15 +232,11 @@ function ModelSection({ corpora, selectedCorpusId, onSelectCorpus }: ModelSectio
     setSavingModel(true)
     const model = models.find((m) => m.model_id === selectedModelId)
     try {
-      await selectModel(
-        selectedCorpusId,
-        selectedModelId,
-        model?.display_name ?? selectedModelId,
-        selectedProvider,
-      )
-      setSaveSuccess(
-        `Modèle « ${model?.display_name ?? selectedModelId} » associé au corpus.`,
-      )
+      await selectModel(corpusId, selectedModelId, model?.display_name ?? selectedModelId, selectedProvider)
+      const updated = await getCorpusModel(corpusId)
+      setCurrentModel(updated)
+      setSaveSuccess(`Modèle « ${model?.display_name ?? selectedModelId} » associé au corpus.`)
+      onSaved()
     } catch (err) {
       setSaveError(err instanceof Error ? err.message : 'Erreur inconnue')
     } finally {
@@ -280,17 +247,21 @@ function ModelSection({ corpora, selectedCorpusId, onSelectCorpus }: ModelSectio
   const availableProviders = providers.filter((p) => p.available)
 
   return (
-    <section>
-      <h2 className="text-lg font-semibold text-stone-800 mb-6">Configurer le modèle IA</h2>
-      <CorpusSelector corpora={corpora} value={selectedCorpusId} onChange={onSelectCorpus} />
+    <>
+      {currentModel && (
+        <div className="mb-4 text-sm bg-stone-50 border border-stone-200 rounded px-3 py-2 text-stone-600">
+          Modèle actuel :{' '}
+          <span className="font-medium text-stone-800">{currentModel.selected_model_display_name}</span>
+          {' '}({currentModel.provider_type})
+        </div>
+      )}
 
-      {/* Étape 1 — Providers détectés */}
       {loadingProviders && (
-        <p className="text-sm text-stone-400 mb-4">Détection des providers disponibles…</p>
+        <p className="text-sm text-stone-400">Détection des providers disponibles…</p>
       )}
       {!loadingProviders && providersError && <ErrorMsg message={providersError} />}
       {!loadingProviders && providers.length > 0 && (
-        <div className="mb-6">
+        <div className="mb-4">
           <p className="text-xs font-semibold text-stone-500 uppercase tracking-wide mb-2">
             Providers IA détectés
           </p>
@@ -305,36 +276,27 @@ function ModelSection({ corpora, selectedCorpusId, onSelectCorpus }: ModelSectio
                 } ${selectedProvider === p.provider_type ? 'ring-2 ring-stone-500' : ''}`}
                 onClick={() => p.available && setSelectedProvider(p.provider_type)}
               >
-                <span
-                  className={`w-1.5 h-1.5 rounded-full ${p.available ? 'bg-green-500' : 'bg-stone-300'}`}
-                />
+                <span className={`w-1.5 h-1.5 rounded-full ${p.available ? 'bg-green-500' : 'bg-stone-300'}`} />
                 {p.display_name}
-                {p.available && (
-                  <span className="text-green-600">({p.model_count})</span>
-                )}
+                {p.available && <span className="text-green-600">({p.model_count})</span>}
                 {!p.available && <span className="text-stone-400">— clé manquante</span>}
               </span>
             ))}
           </div>
           {availableProviders.length === 0 && (
             <p className="text-sm text-amber-600 bg-amber-50 border border-amber-200 rounded px-3 py-2 mt-3">
-              Aucun modèle détecté. Vérifiez que les secrets{' '}
-              <code className="font-mono">AI_PROVIDER</code> et{' '}
-              <code className="font-mono">VERTEX_API_KEY</code> (ou{' '}
-              <code className="font-mono">GOOGLE_AI_STUDIO_API_KEY</code> ou{' '}
-              <code className="font-mono">MISTRAL_API_KEY</code>) sont bien configurés
-              dans les secrets HuggingFace.
+              Aucun provider disponible. Vérifiez les secrets{' '}
+              <code className="font-mono">GOOGLE_AI_STUDIO_API_KEY</code>,{' '}
+              <code className="font-mono">VERTEX_API_KEY</code> ou{' '}
+              <code className="font-mono">MISTRAL_API_KEY</code>.
             </p>
           )}
         </div>
       )}
 
-      {/* Étape 2 + 3 — Sélection du modèle et enregistrement */}
       {selectedProvider && (
-        <form onSubmit={(e) => void handleSelectModel(e)} className="space-y-4 max-w-md">
-          {loadingModels && (
-            <p className="text-sm text-stone-400">Chargement des modèles…</p>
-          )}
+        <form onSubmit={(e) => void handleSelectModel(e)} className="space-y-3 max-w-sm">
+          {loadingModels && <p className="text-sm text-stone-400">Chargement des modèles…</p>}
           {!loadingModels && modelsError && <ErrorMsg message={modelsError} />}
           {!loadingModels && models.length > 0 && (
             <div>
@@ -348,8 +310,7 @@ function ModelSection({ corpora, selectedCorpusId, onSelectCorpus }: ModelSectio
               >
                 {models.map((m) => (
                   <option key={m.model_id} value={m.model_id}>
-                    {m.display_name}
-                    {m.supports_vision ? ' (vision)' : ''}
+                    {m.display_name}{m.supports_vision ? ' (vision)' : ''}
                   </option>
                 ))}
               </select>
@@ -360,7 +321,7 @@ function ModelSection({ corpora, selectedCorpusId, onSelectCorpus }: ModelSectio
           {!loadingModels && models.length > 0 && (
             <button
               type="submit"
-              disabled={savingModel || !selectedCorpusId || !selectedModelId}
+              disabled={savingModel || !selectedModelId}
               className="bg-stone-800 text-white px-5 py-2 rounded text-sm font-medium hover:bg-stone-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
             >
               {savingModel ? 'Enregistrement…' : 'Sélectionner ce modèle'}
@@ -368,35 +329,30 @@ function ModelSection({ corpora, selectedCorpusId, onSelectCorpus }: ModelSectio
           )}
         </form>
       )}
-    </section>
+    </>
   )
 }
 
-// ── Section 3 — Ingestion ──────────────────────────────────────────────────
+// ── IngestPanel ───────────────────────────────────────────────────────────
 
-interface IngestSectionProps {
-  corpora: Corpus[]
-  selectedCorpusId: string
-  onSelectCorpus: (id: string) => void
+interface IngestPanelProps {
+  corpusId: string
 }
 
-function IngestSection({ corpora, selectedCorpusId, onSelectCorpus }: IngestSectionProps) {
+function IngestPanel({ corpusId }: IngestPanelProps) {
   const [subTab, setSubTab] = useState<IngestSubTab>('urls')
 
-  // URLs tab
   const [urlsText, setUrlsText] = useState('')
   const [folioLabelsText, setFolioLabelsText] = useState('')
   const [urlsLoading, setUrlsLoading] = useState(false)
   const [urlsError, setUrlsError] = useState<string | null>(null)
   const [urlsSuccess, setUrlsSuccess] = useState<string | null>(null)
 
-  // Manifest tab
   const [manifestUrl, setManifestUrl] = useState('')
   const [manifestLoading, setManifestLoading] = useState(false)
   const [manifestError, setManifestError] = useState<string | null>(null)
   const [manifestSuccess, setManifestSuccess] = useState<string | null>(null)
 
-  // Files tab
   const [selectedFiles, setSelectedFiles] = useState<File[]>([])
   const [filesLoading, setFilesLoading] = useState(false)
   const [filesError, setFilesError] = useState<string | null>(null)
@@ -408,19 +364,14 @@ function IngestSection({ corpora, selectedCorpusId, onSelectCorpus }: IngestSect
     setUrlsSuccess(null)
     const urls = urlsText.split('\n').map((l) => l.trim()).filter(Boolean)
     const labels = folioLabelsText.split('\n').map((l) => l.trim()).filter(Boolean)
-    if (urls.length === 0) {
-      setUrlsError('Aucune URL renseignée.')
-      return
-    }
+    if (urls.length === 0) { setUrlsError('Aucune URL renseignée.'); return }
     if (labels.length !== urls.length) {
-      setUrlsError(
-        `Le nombre de folio_labels (${labels.length}) doit être égal au nombre d'URLs (${urls.length}).`,
-      )
+      setUrlsError(`Le nombre de folio_labels (${labels.length}) doit être égal au nombre d'URLs (${urls.length}).`)
       return
     }
     setUrlsLoading(true)
     try {
-      const resp = await ingestImages(selectedCorpusId, urls, labels)
+      const resp = await ingestImages(corpusId, urls, labels)
       setUrlsSuccess(`${resp.pages_created} page(s) ingérée(s).`)
       setUrlsText('')
       setFolioLabelsText('')
@@ -437,7 +388,7 @@ function IngestSection({ corpora, selectedCorpusId, onSelectCorpus }: IngestSect
     setManifestSuccess(null)
     setManifestLoading(true)
     try {
-      const resp = await ingestManifest(selectedCorpusId, manifestUrl)
+      const resp = await ingestManifest(corpusId, manifestUrl)
       setManifestSuccess(`${resp.pages_created} page(s) ingérée(s) depuis le manifest.`)
       setManifestUrl('')
     } catch (err) {
@@ -451,13 +402,10 @@ function IngestSection({ corpora, selectedCorpusId, onSelectCorpus }: IngestSect
     e.preventDefault()
     setFilesError(null)
     setFilesSuccess(null)
-    if (selectedFiles.length === 0) {
-      setFilesError('Aucun fichier sélectionné.')
-      return
-    }
+    if (selectedFiles.length === 0) { setFilesError('Aucun fichier sélectionné.'); return }
     setFilesLoading(true)
     try {
-      const resp = await ingestFiles(selectedCorpusId, selectedFiles)
+      const resp = await ingestFiles(corpusId, selectedFiles)
       setFilesSuccess(`${resp.pages_created} page(s) ingérée(s).`)
       setSelectedFiles([])
     } catch (err) {
@@ -476,68 +424,53 @@ function IngestSection({ corpora, selectedCorpusId, onSelectCorpus }: IngestSect
 
   const textareaClass =
     'border border-stone-300 rounded px-3 py-2 text-sm w-full font-mono focus:outline-none focus:ring-2 focus:ring-stone-400'
-
   const submitBtnClass =
     'bg-stone-800 text-white px-5 py-2 rounded text-sm font-medium hover:bg-stone-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors'
 
   return (
-    <section>
-      <h2 className="text-lg font-semibold text-stone-800 mb-6">Ingérer des images</h2>
-      <CorpusSelector corpora={corpora} value={selectedCorpusId} onChange={onSelectCorpus} />
-
-      {/* Sub-tabs */}
-      <div className="flex border-b border-stone-200 mb-6">
-        <button className={subTabClass('urls')} onClick={() => setSubTab('urls')}>
-          URLs directes
-        </button>
-        <button className={subTabClass('manifest')} onClick={() => setSubTab('manifest')}>
-          Manifest IIIF
-        </button>
-        <button className={subTabClass('files')} onClick={() => setSubTab('files')}>
-          Fichiers locaux
-        </button>
+    <>
+      <div className="flex border-b border-stone-200 mb-4 -mt-1">
+        <button className={subTabClass('urls')} onClick={() => setSubTab('urls')}>URLs directes</button>
+        <button className={subTabClass('manifest')} onClick={() => setSubTab('manifest')}>Manifest IIIF</button>
+        <button className={subTabClass('files')} onClick={() => setSubTab('files')}>Fichiers locaux</button>
       </div>
 
-      {/* URLs tab */}
       {subTab === 'urls' && (
-        <form onSubmit={(e) => void handleUrlsSubmit(e)} className="space-y-4 max-w-lg">
+        <form onSubmit={(e) => void handleUrlsSubmit(e)} className="space-y-3 max-w-lg">
           <div>
             <label className="block text-xs font-semibold text-stone-500 uppercase tracking-wide mb-1">
-              URLs d'images{' '}
-              <span className="font-normal normal-case text-stone-400">(1 par ligne)</span>
+              URLs d'images <span className="font-normal normal-case text-stone-400">(1 par ligne)</span>
             </label>
             <textarea
               value={urlsText}
               onChange={(e) => setUrlsText(e.target.value)}
-              rows={5}
+              rows={4}
               placeholder="https://gallica.bnf.fr/iiif/ark:/…/f1/full/max/0/native.jpg"
               className={textareaClass}
             />
           </div>
           <div>
             <label className="block text-xs font-semibold text-stone-500 uppercase tracking-wide mb-1">
-              Folio labels{' '}
-              <span className="font-normal normal-case text-stone-400">(1 par ligne, même ordre)</span>
+              Folio labels <span className="font-normal normal-case text-stone-400">(1 par ligne, même ordre)</span>
             </label>
             <textarea
               value={folioLabelsText}
               onChange={(e) => setFolioLabelsText(e.target.value)}
-              rows={5}
+              rows={4}
               placeholder={'001r\n001v\n002r'}
               className={textareaClass}
             />
           </div>
           {urlsError && <ErrorMsg message={urlsError} />}
           {urlsSuccess && <SuccessMsg message={urlsSuccess} />}
-          <button type="submit" disabled={urlsLoading || !selectedCorpusId} className={submitBtnClass}>
+          <button type="submit" disabled={urlsLoading} className={submitBtnClass}>
             {urlsLoading ? 'Ingestion…' : 'Ingérer les images'}
           </button>
         </form>
       )}
 
-      {/* Manifest tab */}
       {subTab === 'manifest' && (
-        <form onSubmit={(e) => void handleManifestSubmit(e)} className="space-y-4 max-w-lg">
+        <form onSubmit={(e) => void handleManifestSubmit(e)} className="space-y-3 max-w-lg">
           <div>
             <label className="block text-xs font-semibold text-stone-500 uppercase tracking-wide mb-1">
               URL du manifest IIIF
@@ -553,19 +486,14 @@ function IngestSection({ corpora, selectedCorpusId, onSelectCorpus }: IngestSect
           </div>
           {manifestError && <ErrorMsg message={manifestError} />}
           {manifestSuccess && <SuccessMsg message={manifestSuccess} />}
-          <button
-            type="submit"
-            disabled={manifestLoading || !selectedCorpusId || !manifestUrl}
-            className={submitBtnClass}
-          >
+          <button type="submit" disabled={manifestLoading || !manifestUrl} className={submitBtnClass}>
             {manifestLoading ? 'Ingestion…' : 'Importer le manifest'}
           </button>
         </form>
       )}
 
-      {/* Files tab */}
       {subTab === 'files' && (
-        <form onSubmit={(e) => void handleFilesSubmit(e)} className="space-y-4 max-w-lg">
+        <form onSubmit={(e) => void handleFilesSubmit(e)} className="space-y-3 max-w-lg">
           <div>
             <label className="block text-xs font-semibold text-stone-500 uppercase tracking-wide mb-1">
               Fichiers images
@@ -578,59 +506,59 @@ function IngestSection({ corpora, selectedCorpusId, onSelectCorpus }: IngestSect
               className="block text-sm text-stone-600 file:mr-4 file:py-2 file:px-4 file:rounded file:border-0 file:text-sm file:font-medium file:bg-stone-100 file:text-stone-700 hover:file:bg-stone-200"
             />
             {selectedFiles.length > 0 && (
-              <p className="text-xs text-stone-500 mt-1">
-                {selectedFiles.length} fichier(s) sélectionné(s)
-              </p>
+              <p className="text-xs text-stone-500 mt-1">{selectedFiles.length} fichier(s) sélectionné(s)</p>
             )}
           </div>
           {filesError && <ErrorMsg message={filesError} />}
           {filesSuccess && <SuccessMsg message={filesSuccess} />}
-          <button
-            type="submit"
-            disabled={filesLoading || !selectedCorpusId || selectedFiles.length === 0}
-            className={submitBtnClass}
-          >
+          <button type="submit" disabled={filesLoading || selectedFiles.length === 0} className={submitBtnClass}>
             {filesLoading ? 'Envoi…' : 'Envoyer les fichiers'}
           </button>
         </form>
       )}
-    </section>
+    </>
   )
 }
 
-// ── Section 4 — Lancer le traitement ────────────────────────────────────────
+// ── RunPanel ──────────────────────────────────────────────────────────────
 
-interface RunSectionProps {
-  corpora: Corpus[]
-  selectedCorpusId: string
-  onSelectCorpus: (id: string) => void
+interface RunPanelProps {
+  corpusId: string
+  hasModel: boolean
 }
 
-function RunSection({ corpora, selectedCorpusId, onSelectCorpus }: RunSectionProps) {
+function RunPanel({ corpusId, hasModel }: RunPanelProps) {
+  const [pageCount, setPageCount] = useState<number | null>(null)
   const [launching, setLaunching] = useState(false)
   const [launchError, setLaunchError] = useState<string | null>(null)
   const [jobIds, setJobIds] = useState<string[]>([])
   const [jobs, setJobs] = useState<Record<string, Job>>({})
   const [polling, setPolling] = useState(false)
 
+  // Fetch page count from manuscripts + pages
+  useEffect(() => {
+    fetchManuscripts(corpusId)
+      .then(async (manuscripts) => {
+        if (manuscripts.length === 0) { setPageCount(0); return }
+        const pagesArrays = await Promise.all(manuscripts.map((m) => fetchPages(m.id)))
+        setPageCount(pagesArrays.reduce((sum, ps) => sum + ps.length, 0))
+      })
+      .catch(() => setPageCount(null))
+  }, [corpusId])
+
   useEffect(() => {
     if (!polling || jobIds.length === 0) return
-
     const poll = async () => {
       try {
         const results = await Promise.all(jobIds.map((id) => getJob(id)))
         const map: Record<string, Job> = {}
         for (const job of results) map[job.id] = job
         setJobs(map)
-        const allTerminal = results.every(
-          (j) => j.status === 'done' || j.status === 'failed',
-        )
-        if (allTerminal) setPolling(false)
+        if (results.every((j) => j.status === 'done' || j.status === 'failed')) setPolling(false)
       } catch {
         // Erreur réseau transitoire — on continue
       }
     }
-
     const id = setInterval(() => void poll(), 3000)
     return () => clearInterval(id)
   }, [polling, jobIds])
@@ -641,7 +569,7 @@ function RunSection({ corpora, selectedCorpusId, onSelectCorpus }: RunSectionPro
     setJobs({})
     setLaunching(true)
     try {
-      const resp = await runCorpus(selectedCorpusId)
+      const resp = await runCorpus(corpusId)
       setJobIds(resp.job_ids)
       setPolling(true)
     } catch (err) {
@@ -652,9 +580,7 @@ function RunSection({ corpora, selectedCorpusId, onSelectCorpus }: RunSectionPro
   }
 
   const handleRetryFailed = async () => {
-    const failedIds = Object.values(jobs)
-      .filter((j) => j.status === 'failed')
-      .map((j) => j.id)
+    const failedIds = Object.values(jobs).filter((j) => j.status === 'failed').map((j) => j.id)
     if (failedIds.length === 0) return
     await Promise.allSettled(failedIds.map((id) => retryJob(id)))
     setPolling(true)
@@ -673,99 +599,200 @@ function RunSection({ corpora, selectedCorpusId, onSelectCorpus }: RunSectionPro
       failed: 'bg-red-100 text-red-700',
     }
     return (
-      <span
-        className={`text-xs px-2 py-0.5 rounded font-medium ${classes[status] ?? 'bg-stone-100 text-stone-500'}`}
-      >
+      <span className={`text-xs px-2 py-0.5 rounded font-medium ${classes[status] ?? 'bg-stone-100 text-stone-500'}`}>
         {status}
       </span>
     )
   }
 
+  if (!hasModel) {
+    return (
+      <p className="text-sm text-amber-600 bg-amber-50 border border-amber-200 rounded px-3 py-2">
+        Configurez d'abord un modèle IA pour ce corpus.
+      </p>
+    )
+  }
+
   return (
-    <section>
-      <h2 className="text-lg font-semibold text-stone-800 mb-6">Lancer le traitement</h2>
-      <CorpusSelector corpora={corpora} value={selectedCorpusId} onChange={onSelectCorpus} />
+    <div className="space-y-4">
+      {pageCount !== null && (
+        <p className="text-sm text-stone-600">
+          {pageCount === 0
+            ? 'Aucune page ingérée.'
+            : `${pageCount} page(s) dans ce corpus.`}
+        </p>
+      )}
 
-      <div className="space-y-4">
-        {launchError && <ErrorMsg message={launchError} />}
+      {launchError && <ErrorMsg message={launchError} />}
 
-        <div className="flex flex-wrap gap-3 items-center">
+      <div className="flex flex-wrap gap-3 items-center">
+        <button
+          onClick={() => void handleRun()}
+          disabled={launching || polling || pageCount === 0}
+          className="bg-stone-800 text-white px-5 py-2 rounded text-sm font-medium hover:bg-stone-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+        >
+          {launching ? 'Démarrage…' : polling ? 'Traitement en cours…' : 'Analyser tout le corpus'}
+        </button>
+
+        {failedCount > 0 && !polling && (
           <button
-            onClick={() => void handleRun()}
-            disabled={launching || !selectedCorpusId || polling}
-            className="bg-stone-800 text-white px-5 py-2 rounded text-sm font-medium hover:bg-stone-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+            onClick={() => void handleRetryFailed()}
+            className="border border-stone-300 text-stone-700 px-5 py-2 rounded text-sm font-medium hover:bg-stone-50 transition-colors"
           >
-            {launching
-              ? 'Démarrage…'
-              : polling
-                ? 'Traitement en cours…'
-                : 'Analyser tout le corpus'}
+            Relancer {failedCount} page(s) en erreur
           </button>
+        )}
+      </div>
 
-          {failedCount > 0 && !polling && (
+      {totalCount > 0 && (
+        <div>
+          <p className="text-sm text-stone-600 mb-3">
+            Progression : <strong>{doneCount}</strong> / {totalCount} pages traitées
+            {failedCount > 0 && <span className="text-red-600 ml-2">· {failedCount} en erreur</span>}
+            {polling && <span className="text-blue-600 ml-2">· actualisation toutes les 3 s</span>}
+          </p>
+          <ul className="space-y-1 max-h-64 overflow-y-auto border border-stone-200 rounded p-2 bg-white">
+            {jobList.map((job) => (
+              <li
+                key={job.id}
+                className="flex items-center justify-between text-xs text-stone-600 py-1 px-2 rounded hover:bg-stone-50"
+              >
+                <span className="font-mono truncate max-w-xs">{job.page_id ?? job.id}</span>
+                <div className="flex items-center gap-2 ml-2 shrink-0">
+                  {statusBadge(job.status)}
+                  {job.error_message && (
+                    <span className="text-red-500 truncate max-w-xs" title={job.error_message}>
+                      {job.error_message}
+                    </span>
+                  )}
+                </div>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+    </div>
+  )
+}
+
+// ── CorpusDetail ──────────────────────────────────────────────────────────
+
+interface CorpusDetailProps {
+  corpus: Corpus
+  onDeleted: () => void
+}
+
+function CorpusDetail({ corpus, onDeleted }: CorpusDetailProps) {
+  const [hasModel, setHasModel] = useState(false)
+  const [deleting, setDeleting] = useState(false)
+  const [deleteError, setDeleteError] = useState<string | null>(null)
+  const [confirmDelete, setConfirmDelete] = useState(false)
+
+  useEffect(() => {
+    getCorpusModel(corpus.id)
+      .then((m) => setHasModel(m !== null))
+      .catch(() => {})
+  }, [corpus.id])
+
+  const handleDelete = async () => {
+    setDeleteError(null)
+    setDeleting(true)
+    try {
+      await deleteCorpus(corpus.id)
+      onDeleted()
+    } catch (err) {
+      setDeleteError(err instanceof Error ? err.message : 'Erreur inconnue')
+      setDeleting(false)
+      setConfirmDelete(false)
+    }
+  }
+
+  return (
+    <div>
+      {/* Corpus header */}
+      <div className="flex items-start justify-between mb-6">
+        <div>
+          <h2 className="text-xl font-semibold text-stone-800">{corpus.title}</h2>
+          <p className="text-sm text-stone-500 mt-0.5">
+            <span className="font-mono">{corpus.slug}</span>
+            {' · '}
+            <span>{corpus.profile_id}</span>
+          </p>
+        </div>
+        <div className="flex items-center gap-2">
+          {deleteError && <span className="text-xs text-red-600">{deleteError}</span>}
+          {confirmDelete ? (
+            <>
+              <span className="text-xs text-stone-600">Confirmer la suppression ?</span>
+              <button
+                onClick={() => void handleDelete()}
+                disabled={deleting}
+                className="px-3 py-1.5 bg-red-600 text-white text-xs rounded font-medium hover:bg-red-700 disabled:opacity-50 transition-colors"
+              >
+                {deleting ? 'Suppression…' : 'Supprimer'}
+              </button>
+              <button
+                onClick={() => setConfirmDelete(false)}
+                className="px-3 py-1.5 border border-stone-300 text-stone-600 text-xs rounded font-medium hover:bg-stone-50 transition-colors"
+              >
+                Annuler
+              </button>
+            </>
+          ) : (
             <button
-              onClick={() => void handleRetryFailed()}
-              className="border border-stone-300 text-stone-700 px-5 py-2 rounded text-sm font-medium hover:bg-stone-50 transition-colors"
+              onClick={() => setConfirmDelete(true)}
+              className="px-3 py-1.5 border border-red-200 text-red-600 text-xs rounded font-medium hover:bg-red-50 transition-colors"
             >
-              Relancer {failedCount} page(s) en erreur
+              Supprimer
             </button>
           )}
         </div>
-
-        {totalCount > 0 && (
-          <div>
-            <p className="text-sm text-stone-600 mb-3">
-              Progression : <strong>{doneCount}</strong> / {totalCount} pages traitées
-              {failedCount > 0 && (
-                <span className="text-red-600 ml-2">· {failedCount} en erreur</span>
-              )}
-              {polling && (
-                <span className="text-blue-600 ml-2">· actualisation toutes les 3 s</span>
-              )}
-            </p>
-
-            <ul className="space-y-1 max-h-80 overflow-y-auto border border-stone-200 rounded p-2 bg-white">
-              {jobList.map((job) => (
-                <li
-                  key={job.id}
-                  className="flex items-center justify-between text-xs text-stone-600 py-1 px-2 rounded hover:bg-stone-50"
-                >
-                  <span className="font-mono truncate max-w-xs">
-                    {job.page_id ?? job.id}
-                  </span>
-                  <div className="flex items-center gap-2 ml-2 shrink-0">
-                    {statusBadge(job.status)}
-                    {job.error_message && (
-                      <span
-                        className="text-red-500 truncate max-w-xs"
-                        title={job.error_message}
-                      >
-                        {job.error_message}
-                      </span>
-                    )}
-                  </div>
-                </li>
-              ))}
-            </ul>
-          </div>
-        )}
       </div>
-    </section>
+
+      {/* Section cards */}
+      <SectionCard title="Modèle IA">
+        <ModelPanel
+          key={corpus.id}
+          corpusId={corpus.id}
+          onSaved={() => setHasModel(true)}
+        />
+      </SectionCard>
+
+      <SectionCard title="Ingestion">
+        <IngestPanel key={corpus.id} corpusId={corpus.id} />
+      </SectionCard>
+
+      <SectionCard title="Traitement">
+        <RunPanel key={corpus.id} corpusId={corpus.id} hasModel={hasModel} />
+      </SectionCard>
+    </div>
   )
 }
 
 // ── Admin (composant principal) ─────────────────────────────────────────────
 
 export default function Admin({ onHome }: Props) {
-  const [activeTab, setActiveTab] = useState<AdminTab>('corpus')
   const [corpora, setCorpora] = useState<Corpus[]>([])
-  const [selectedCorpusId, setSelectedCorpusId] = useState<string>('')
+  const [selectedCorpusId, setSelectedCorpusId] = useState<string | null>(null)
+  const [showCreate, setShowCreate] = useState(false)
+  const didInit = useRef(false)
 
-  const refreshCorpora = () => {
+  const refreshCorpora = (selectId?: string) => {
     fetchCorpora()
       .then((cs) => {
         setCorpora(cs)
-        setSelectedCorpusId((prev) => prev || (cs.length > 0 ? cs[0].id : ''))
+        if (selectId) {
+          setSelectedCorpusId(selectId)
+          setShowCreate(false)
+        } else if (!didInit.current) {
+          didInit.current = true
+          if (cs.length > 0) {
+            setSelectedCorpusId(cs[0].id)
+            setShowCreate(false)
+          } else {
+            setShowCreate(true)
+          }
+        }
       })
       .catch(() => {})
   }
@@ -774,16 +801,12 @@ export default function Admin({ onHome }: Props) {
     refreshCorpora()
   }, [])
 
-  const tabClass = (tab: AdminTab) =>
-    `px-5 py-3 text-sm font-medium border-b-2 transition-colors ${
-      activeTab === tab
-        ? 'border-stone-800 text-stone-900'
-        : 'border-transparent text-stone-500 hover:text-stone-700'
-    }`
+  const selectedCorpus = corpora.find((c) => c.id === selectedCorpusId) ?? null
 
   return (
-    <div className="min-h-screen bg-stone-50">
-      <header className="bg-stone-900 text-stone-100 px-8 py-4 flex items-center gap-4">
+    <div className="h-screen flex flex-col bg-stone-50">
+      {/* Top bar */}
+      <header className="bg-stone-900 text-stone-100 px-6 py-4 flex items-center gap-4 shrink-0">
         <button
           onClick={onHome}
           className="text-stone-400 hover:text-stone-100 text-sm transition-colors"
@@ -793,54 +816,73 @@ export default function Admin({ onHome }: Props) {
         <h1 className="text-xl font-semibold tracking-tight">Administration</h1>
       </header>
 
-      <nav className="bg-white border-b border-stone-200 px-8">
-        <div className="flex">
-          <button className={tabClass('corpus')} onClick={() => setActiveTab('corpus')}>
-            Nouveau corpus
-          </button>
-          <button className={tabClass('model')} onClick={() => setActiveTab('model')}>
-            Modèle IA
-          </button>
-          <button className={tabClass('ingest')} onClick={() => setActiveTab('ingest')}>
-            Ingestion
-          </button>
-          <button className={tabClass('run')} onClick={() => setActiveTab('run')}>
-            Traitement
-          </button>
-        </div>
-      </nav>
+      <div className="flex flex-1 overflow-hidden">
+        {/* Sidebar */}
+        <aside className="w-64 bg-white border-r border-stone-200 flex flex-col shrink-0 overflow-y-auto">
+          <div className="p-3 border-b border-stone-100">
+            <button
+              onClick={() => { setShowCreate(true); setSelectedCorpusId(null) }}
+              className={`w-full text-left px-3 py-2 rounded text-sm font-medium transition-colors ${
+                showCreate && !selectedCorpusId
+                  ? 'bg-stone-800 text-white'
+                  : 'text-stone-600 hover:bg-stone-100'
+              }`}
+            >
+              + Nouveau corpus
+            </button>
+          </div>
+          <nav className="flex-1 p-3 space-y-0.5">
+            {corpora.length === 0 && (
+              <p className="text-xs text-stone-400 px-3 py-2">Aucun corpus</p>
+            )}
+            {corpora.map((c) => (
+              <button
+                key={c.id}
+                onClick={() => { setSelectedCorpusId(c.id); setShowCreate(false) }}
+                className={`w-full text-left px-3 py-2 rounded text-sm transition-colors ${
+                  selectedCorpusId === c.id && !showCreate
+                    ? 'bg-stone-100 text-stone-900 font-medium'
+                    : 'text-stone-600 hover:bg-stone-50'
+                }`}
+              >
+                <span className="block truncate">{c.title}</span>
+                <span className="block truncate text-xs text-stone-400 font-mono">{c.slug}</span>
+              </button>
+            ))}
+          </nav>
+        </aside>
 
-      <main className="max-w-3xl mx-auto py-10 px-8">
-        {activeTab === 'corpus' && (
-          <CreateCorpusSection
-            onCreated={(corpus) => {
-              setCorpora((prev) => [...prev, corpus])
-              setSelectedCorpusId(corpus.id)
-            }}
-          />
-        )}
-        {activeTab === 'model' && (
-          <ModelSection
-            corpora={corpora}
-            selectedCorpusId={selectedCorpusId}
-            onSelectCorpus={setSelectedCorpusId}
-          />
-        )}
-        {activeTab === 'ingest' && (
-          <IngestSection
-            corpora={corpora}
-            selectedCorpusId={selectedCorpusId}
-            onSelectCorpus={setSelectedCorpusId}
-          />
-        )}
-        {activeTab === 'run' && (
-          <RunSection
-            corpora={corpora}
-            selectedCorpusId={selectedCorpusId}
-            onSelectCorpus={setSelectedCorpusId}
-          />
-        )}
-      </main>
+        {/* Main panel */}
+        <main className="flex-1 overflow-y-auto p-8">
+          {showCreate && !selectedCorpusId && (
+            <CreateCorpusPanel
+              onCreated={(corpus) => {
+                refreshCorpora(corpus.id)
+              }}
+            />
+          )}
+          {!showCreate && selectedCorpus && (
+            <CorpusDetail
+              key={selectedCorpus.id}
+              corpus={selectedCorpus}
+              onDeleted={() => {
+                const remaining = corpora.filter((c) => c.id !== selectedCorpus.id)
+                setCorpora(remaining)
+                if (remaining.length > 0) {
+                  setSelectedCorpusId(remaining[0].id)
+                  setShowCreate(false)
+                } else {
+                  setSelectedCorpusId(null)
+                  setShowCreate(true)
+                }
+              }}
+            />
+          )}
+          {!showCreate && !selectedCorpus && corpora.length > 0 && (
+            <p className="text-sm text-stone-400">Sélectionnez un corpus dans la barre latérale.</p>
+          )}
+        </main>
+      </div>
     </div>
   )
 }

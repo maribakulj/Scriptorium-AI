@@ -204,6 +204,15 @@ async function put<T>(path: string, body?: unknown): Promise<T> {
   return resp.json() as Promise<T>
 }
 
+async function del(path: string): Promise<void> {
+  const resp = await fetch(`${BASE_URL}${path}`, { method: 'DELETE' })
+  if (!resp.ok) {
+    const payload = await resp.json().catch(() => null)
+    const detail = (payload as { detail?: string } | null)?.detail
+    throw new Error(detail ?? `HTTP ${resp.status} — ${path}`)
+  }
+}
+
 async function postForm<T>(path: string, data: FormData): Promise<T> {
   const resp = await fetch(`${BASE_URL}${path}`, { method: 'POST', body: data })
   if (!resp.ok) {
@@ -257,6 +266,22 @@ export const selectModel = (
     display_name: displayName,
     provider_type: providerType,
   })
+
+export const deleteCorpus = (id: string): Promise<void> =>
+  del(`/api/v1/corpora/${id}`)
+
+export interface CorpusModelConfig {
+  corpus_id: string
+  selected_model_id: string
+  selected_model_display_name: string
+  provider_type: string
+  updated_at: string
+}
+
+export const getCorpusModel = (corpusId: string): Promise<CorpusModelConfig | null> =>
+  fetch(`${BASE_URL}/api/v1/corpora/${corpusId}/model`)
+    .then((r) => (r.ok ? (r.json() as Promise<CorpusModelConfig>) : null))
+    .catch(() => null)
 
 export const ingestImages = (
   corpusId: string,
