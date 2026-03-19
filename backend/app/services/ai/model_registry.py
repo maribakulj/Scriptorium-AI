@@ -54,8 +54,9 @@ def get_available_providers() -> list[dict]:
                 model_count = len(models)
             except Exception as exc:
                 logger.warning(
-                    "Provider inaccessible lors de get_available_providers",
-                    extra={"provider": provider.provider_type, "error": str(exc)},
+                    "Provider %s inaccessible : %s",
+                    provider.provider_type.value,
+                    exc,
                 )
                 available = False
 
@@ -117,8 +118,9 @@ def list_all_models() -> list[ModelInfo]:
             )
         except Exception as exc:
             logger.warning(
-                "Provider inaccessible",
-                extra={"provider": provider.provider_type, "error": str(exc)},
+                "Provider %s inaccessible : %s",
+                provider.provider_type.value,
+                exc,
             )
 
     return result

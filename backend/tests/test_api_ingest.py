@@ -417,3 +417,103 @@ async def test_ingest_images_corpus_id_in_response(async_client, db_session):
         json={"urls": ["https://x.com/1.jpg"], "folio_labels": ["f001r"]},
     )).json()
     assert data["corpus_id"] == corpus.id
+
+
+# ---------------------------------------------------------------------------
+# Réingestion — pas de 500
+# ---------------------------------------------------------------------------
+
+@pytest.mark.asyncio
+async def test_reingest_manifest_skips_existing_pages(async_client, db_session, monkeypatch):
+    """Réingérer le même manifest ne provoque pas de 500 (UNIQUE constraint).
+
+    La deuxième ingestion doit retourner 201 avec pages_created=0 et pages_skipped=N.
+    """
+    corpus = await _make_corpus(db_session, slug="reingest")
+    manifest = _iiif3_manifest(n_canvases=2)
+
+    async def fake_fetch(url: str) -> dict:
+        return manifest
+
+    monkeypatch.setattr(ingest_module, "_fetch_json_manifest", fake_fetch)
+
+    # Première ingestion
+    resp1 = await async_client.post(
+        f"/api/v1/corpora/{corpus.id}/ingest/iiif-manifest",
+        json={"manifest_url": "https://example.com/manifest"},
+    )
+    assert resp1.status_code == 201
+    data1 = resp1.json()
+    assert data1["pages_created"] == 2
+    assert data1["pages_skipped"] == 0
+
+    # Deuxième ingestion — même manifest
+    resp2 = await async_client.post(
+        f"/api/v1/corpora/{corpus.id}/ingest/iiif-manifest",
+        json={"manifest_url": "https://example.com/manifest"},
+    )
+    assert resp2.status_code == 201
+    data2 = resp2.json()
+    assert data2["pages_created"] == 0
+    assert data2["pages_skipped"] == 2
+
+
+@pytest.mark.asyncio
+async def test_reingest_images_skips_existing_pages(async_client, db_session):
+    """Réingérer les mêmes images ne provoque pas de 500."""
+    corpus = await _make_corpus(db_session, slug="reingest2")
+
+    payload = {"urls": ["https://x.com/a.jpg"], "folio_labels": ["f001r"]}
+
+    resp1 = await async_client.post(
+        f"/api/v1/corpora/{corpus.id}/ingest/iiif-images", json=payload,
+    )
+    assert resp1.status_code == 201
+    assert resp1.json()["pages_created"] == 1
+
+    resp2 = await async_client.post(
+        f"/api/v1/corpora/{corpus.id}/ingest/iiif-images", json=payload,
+    )
+    assert resp2.status_code == 201
+    assert resp2.json()["pages_created"] == 0
+    assert resp2.json()["pages_skipped"] == 1
+
+
+@pytest.mark.asyncio
+async def test_ingest_manifest_duplicate_labels_no_collision(async_client, db_session, monkeypatch):
+    """Deux canvases avec le même label ne provoquent pas de collision d'ID."""
+    corpus = await _make_corpus(db_session, slug="dupe-labels")
+    manifest = {
+        "@context": "http://iiif.io/api/presentation/3/context.json",
+        "type": "Manifest",
+        "label": {"fr": ["Test"]},
+        "items": [
+            {
+                "id": f"https://example.com/canvas/{i}",
+                "type": "Canvas",
+                "label": {"none": ["NP"]},
+                "items": [{
+                    "type": "AnnotationPage",
+                    "items": [{
+                        "type": "Annotation",
+                        "motivation": "painting",
+                        "body": {"id": f"https://example.com/img/{i}.jpg", "type": "Image"},
+                        "target": f"https://example.com/canvas/{i}",
+                    }],
+                }],
+            }
+            for i in range(1, 4)
+        ],
+    }
+
+    monkeypatch.setattr(ingest_module, "_fetch_json_manifest", AsyncMock(return_value=manifest))
+
+    resp = await async_client.post(
+        f"/api/v1/corpora/{corpus.id}/ingest/iiif-manifest",
+        json={"manifest_url": "https://example.com/manifest"},
+    )
+    assert resp.status_code == 201
+    data = resp.json()
+    assert data["pages_created"] == 3
+    # All IDs must be distinct
+    assert len(set(data["page_ids"])) == 3

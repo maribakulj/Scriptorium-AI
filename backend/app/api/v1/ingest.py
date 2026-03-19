@@ -46,6 +46,7 @@ class IngestResponse(BaseModel):
     corpus_id: str
     manuscript_id: str
     pages_created: int
+    pages_skipped: int = 0
     page_ids: list[str]
 
 
@@ -92,16 +93,37 @@ async def _next_sequence(db: AsyncSession, manuscript_id: str) -> int:
     return (max_seq or 0) + 1
 
 
+def _find_duplicate_labels(labels: list[str]) -> set[str]:
+    """Retourne les folio_labels qui apparaissent plus d'une fois."""
+    seen: dict[str, int] = {}
+    for label in labels:
+        seen[label] = seen.get(label, 0) + 1
+    return {label for label, count in seen.items() if count > 1}
+
+
+def _make_page_id(corpus_slug: str, folio_label: str, batch_index: int, duplicate_labels: set[str]) -> str:
+    """Génère un ID de page.  Ajoute le batch_index si le label n'est pas unique."""
+    if folio_label in duplicate_labels:
+        return f"{corpus_slug}-{batch_index:04d}-{folio_label}"
+    return f"{corpus_slug}-{folio_label}"
+
+
 async def _create_page(
     db: AsyncSession,
     manuscript_id: str,
-    corpus_id: str,
+    page_id: str,
     folio_label: str,
     sequence: int,
     image_master_path: str | None = None,
-) -> PageModel:
+) -> PageModel | None:
+    """Crée une page si elle n'existe pas déjà.  Retourne None si l'ID est déjà pris."""
+    existing = await db.get(PageModel, page_id)
+    if existing is not None:
+        logger.info("Page déjà existante, ignorée", extra={"page_id": page_id})
+        return None
+
     page = PageModel(
-        id=f"{corpus_id}-{folio_label}",
+        id=page_id,
         manuscript_id=manuscript_id,
         folio_label=folio_label,
         sequence=sequence,
@@ -179,10 +201,16 @@ async def ingest_files(
     ms = await _get_or_create_manuscript(db, corpus_id)
     seq = await _next_sequence(db, ms.id)
 
+    # Collect labels and detect duplicates
+    labels = [Path(f.filename or f"file_{i}").stem for i, f in enumerate(files)]
+    dupes = _find_duplicate_labels(labels)
+
     created: list[PageModel] = []
+    skipped = 0
     for i, upload in enumerate(files):
         filename = Path(upload.filename or f"file_{i}").name
-        folio_label = Path(filename).stem  # nom sans extension
+        folio_label = labels[i]
+        page_id = _make_page_id(corpus.slug, folio_label, seq + i, dupes)
 
         master_dir = (
             _config_module.settings.data_dir
@@ -197,22 +225,26 @@ async def ingest_files(
         master_path.write_bytes(content)
 
         page = await _create_page(
-            db, ms.id, corpus.slug, folio_label, seq + i,
+            db, ms.id, page_id, folio_label, seq + i,
             image_master_path=str(master_path),
         )
-        created.append(page)
+        if page is None:
+            skipped += 1
+        else:
+            created.append(page)
 
     ms.total_pages = (ms.total_pages or 0) + len(created)
     await db.commit()
 
     logger.info(
         "Fichiers ingérés",
-        extra={"corpus_id": corpus_id, "count": len(created)},
+        extra={"corpus_id": corpus_id, "created": len(created), "skipped": skipped},
     )
     return IngestResponse(
         corpus_id=corpus_id,
         manuscript_id=ms.id,
         pages_created=len(created),
+        pages_skipped=skipped,
         page_ids=[p.id for p in created],
     )
 
@@ -269,27 +301,37 @@ async def ingest_iiif_manifest(
     ms = await _get_or_create_manuscript(db, corpus_id, title=ms_title)
     seq = await _next_sequence(db, ms.id)
 
+    # Collect labels and detect duplicates
+    labels = [_extract_canvas_label(canvas, i) for i, canvas in enumerate(canvases)]
+    dupes = _find_duplicate_labels(labels)
+
     created: list[PageModel] = []
+    skipped = 0
     for i, canvas in enumerate(canvases):
-        folio_label = _extract_canvas_label(canvas, i)
+        folio_label = labels[i]
+        page_id = _make_page_id(corpus.slug, folio_label, seq + i, dupes)
         image_url = _extract_canvas_image_url(canvas)
         page = await _create_page(
-            db, ms.id, corpus.slug, folio_label, seq + i,
+            db, ms.id, page_id, folio_label, seq + i,
             image_master_path=image_url,
         )
-        created.append(page)
+        if page is None:
+            skipped += 1
+        else:
+            created.append(page)
 
     ms.total_pages = (ms.total_pages or 0) + len(created)
     await db.commit()
 
     logger.info(
         "Manifest IIIF ingéré",
-        extra={"corpus_id": corpus_id, "url": body.manifest_url, "pages": len(created)},
+        extra={"corpus_id": corpus_id, "url": body.manifest_url, "created": len(created), "skipped": skipped},
     )
     return IngestResponse(
         corpus_id=corpus_id,
         manuscript_id=ms.id,
         pages_created=len(created),
+        pages_skipped=skipped,
         page_ids=[p.id for p in created],
     )
 
@@ -316,24 +358,32 @@ async def ingest_iiif_images(
     ms = await _get_or_create_manuscript(db, corpus_id)
     seq = await _next_sequence(db, ms.id)
 
+    dupes = _find_duplicate_labels(body.folio_labels)
+
     created: list[PageModel] = []
+    skipped = 0
     for i, (url, folio_label) in enumerate(zip(body.urls, body.folio_labels)):
+        page_id = _make_page_id(corpus.slug, folio_label, seq + i, dupes)
         page = await _create_page(
-            db, ms.id, corpus.slug, folio_label, seq + i,
+            db, ms.id, page_id, folio_label, seq + i,
             image_master_path=url,
         )
-        created.append(page)
+        if page is None:
+            skipped += 1
+        else:
+            created.append(page)
 
     ms.total_pages = (ms.total_pages or 0) + len(created)
     await db.commit()
 
     logger.info(
         "Images IIIF ingérées",
-        extra={"corpus_id": corpus_id, "count": len(created)},
+        extra={"corpus_id": corpus_id, "created": len(created), "skipped": skipped},
     )
     return IngestResponse(
         corpus_id=corpus_id,
         manuscript_id=ms.id,
         pages_created=len(created),
+        pages_skipped=skipped,
         page_ids=[p.id for p in created],
     )

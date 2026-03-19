@@ -67,7 +67,13 @@ class MistralProvider(AIProvider):
         if not self.is_configured():
             raise RuntimeError(f"Variable d'environnement manquante : {_ENV_KEY}")
 
-        from mistralai import Mistral  # import local — dépendance optionnelle
+        try:
+            from mistralai import Mistral  # v1.x — import local
+        except ImportError as exc:
+            raise ImportError(
+                "Impossible d'importer 'Mistral' depuis mistralai. "
+                "Vérifiez que le package est installé : pip install 'mistralai>=1.0'"
+            ) from exc
 
         api_key = os.environ[_ENV_KEY]
         client = Mistral(api_key=api_key)
