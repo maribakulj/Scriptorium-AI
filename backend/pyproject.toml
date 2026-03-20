@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "scriptorium-ai-backend"
-version = "0.1.0"
+version = "0.2.0"
 description = "Backend Scriptorium AI — plateforme générique d'éditions savantes augmentées"
 requires-python = ">=3.11"
 dependencies = [

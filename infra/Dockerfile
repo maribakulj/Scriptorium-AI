@@ -38,6 +38,11 @@ RUN mkdir -p /tmp/build/app \
     && pip install --no-cache-dir --upgrade /tmp/build/ \
     && rm -rf /tmp/build
 
+# ── Layer dédié mistralai — invalide le cache HF si v0.x est présent ─────
+# Layer séparé de l'install principal pour forcer la mise à jour même si
+# HuggingFace réutilise le layer pyproject.toml depuis un build antérieur.
+RUN pip install --no-cache-dir 'mistralai>=1.0,<2.0'
+
 # ── Code source backend ────────────────────────────────────────────────────
 COPY backend/app ./backend/app
 COPY profiles/ ./profiles/
