@@ -105,12 +105,12 @@ class MistralProvider(AIProvider):
         try:
             from mistralai import Mistral  # noqa: F401
             return True
-        except ImportError:
+        except ImportError as exc:
             logger.warning(
                 "MISTRAL_API_KEY est définie mais mistralai>=1.0 n'est pas disponible "
                 "(version 0.x détectée ou package absent). "
-                "Provider Mistral marqué indisponible. "
-                "Reconstruisez le container : docker build --no-cache ..."
+                "Provider Mistral marqué indisponible. Erreur : %s",
+                exc,
             )
             return False
 

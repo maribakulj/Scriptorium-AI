@@ -1,6 +1,6 @@
 # Scriptorium AI — image de production (multi-stage)
-# Ce fichier est la copie exacte de infra/Dockerfile.
-# Il est requis à la racine du dépôt pour HuggingFace Spaces (SDK docker).
+# Ce fichier est utilisé par HuggingFace Spaces (SDK docker, détection automatique).
+# Il doit rester synchronisé avec infra/Dockerfile.
 #
 # Build depuis la racine du dépôt :
 #   docker build -t scriptorium-ai .
@@ -30,8 +30,13 @@ WORKDIR /app
 COPY backend/pyproject.toml /tmp/build/
 RUN mkdir -p /tmp/build/app \
     && touch /tmp/build/app/__init__.py \
-    && pip install --no-cache-dir /tmp/build/ \
+    && pip install --no-cache-dir --upgrade /tmp/build/ \
     && rm -rf /tmp/build
+
+# ── Layer dédié mistralai — garantit v1.x même si le cache pip résout autrement ──
+# Layer séparé pour s'assurer que mistralai>=1.0 est bien installé.
+# Sans cette ligne, une résolution de dépendances conflictuelle peut installer v0.x.
+RUN pip install --no-cache-dir 'mistralai>=1.0,<2.0'
 
 # ── Code source backend ────────────────────────────────────────────────────
 COPY backend/app ./backend/app
@@ -44,10 +49,9 @@ COPY --from=frontend-builder /frontend/dist ./static
 # ── Répertoire des artefacts (vide dans l'image ; monté en volume) ─────────
 RUN mkdir -p /app/data
 
-# ── Secrets Google AI : JAMAIS dans l'image (R06) ─────────────────────────
-# Passer au runtime via -e ou les Secrets HuggingFace Spaces :
-#   AI_PROVIDER, GOOGLE_AI_STUDIO_API_KEY, GOOGLE_AI_API_KEY,
-#   GOOGLE_VERTEX_PROJECT, GOOGLE_VERTEX_LOCATION
+# ── Secrets : JAMAIS dans l'image (R06) ────────────────────────────────────
+# Passer au runtime via les Secrets HuggingFace Spaces :
+#   GOOGLE_AI_STUDIO_API_KEY, MISTRAL_API_KEY, VERTEX_SERVICE_ACCOUNT_JSON
 
 # PYTHONPATH permet l'import `app.main:app` depuis /app/backend/app/
 ENV PYTHONPATH=/app/backend
