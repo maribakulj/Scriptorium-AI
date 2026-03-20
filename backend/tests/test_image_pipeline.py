@@ -265,6 +265,7 @@ def test_fetch_iiif_image_success():
         mock_response = MagicMock()
         mock_response.content = fake_bytes
         mock_response.raise_for_status.return_value = None
+        mock_response.headers.get.return_value = "image/jpeg"
         mock_get.return_value = mock_response
 
         result = fetch_iiif_image("https://example.com/image.jpg")
@@ -317,12 +318,46 @@ def test_fetch_iiif_image_custom_timeout():
         mock_response = MagicMock()
         mock_response.content = fake_bytes
         mock_response.raise_for_status.return_value = None
+        mock_response.headers.get.return_value = "image/jpeg"
         mock_get.return_value = mock_response
 
         fetch_iiif_image("https://example.com/img.jpg", timeout=120.0)
 
     _, kwargs = mock_get.call_args
     assert kwargs["timeout"] == 120.0
+
+
+def test_fetch_iiif_image_html_response_raises():
+    """Une réponse HTML (viewer Gallica, CAPTCHA) lève ValueError avec message clair."""
+    html_bytes = b"<!DOCTYPE html><html><body>Rate limit exceeded</body></html>"
+
+    with patch("app.services.ingest.iiif_fetcher.httpx.get") as mock_get:
+        mock_response = MagicMock()
+        mock_response.content = html_bytes
+        mock_response.raise_for_status.return_value = None
+        mock_response.headers.get.return_value = "text/html; charset=utf-8"
+        mock_get.return_value = mock_response
+
+        with pytest.raises(ValueError, match="non-image"):
+            fetch_iiif_image("https://gallica.bnf.fr/ark:/12148/foo")
+
+
+def test_fetch_iiif_image_jpeg2000_succeeds():
+    """Un contenu JPEG2000 (magic bytes JP2) est accepté sans erreur."""
+    # Magic bytes JPEG2000 : \x00\x00\x00\x0c\x6a\x50\x20\x20 (simplifié ici)
+    jp2_magic = b"\x00\x00\x00\x0cjP  \x0d\x0a\x87\x0a\x00\x00\x00\x14"
+    jp2_bytes = jp2_magic + b"\x00" * 100
+
+    with patch("app.services.ingest.iiif_fetcher.httpx.get") as mock_get:
+        mock_response = MagicMock()
+        mock_response.content = jp2_bytes
+        mock_response.raise_for_status.return_value = None
+        mock_response.headers.get.return_value = "image/jp2"
+        mock_get.return_value = mock_response
+
+        result = fetch_iiif_image("https://gallica.bnf.fr/iiif/ark/f1/full/max/0/default.jp2")
+
+    assert result == jp2_bytes
 
 
 # ---------------------------------------------------------------------------

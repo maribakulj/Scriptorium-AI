@@ -67,7 +67,24 @@ def create_derivatives(
         PIL.UnidentifiedImageError: si les bytes ne sont pas une image valide.
         OSError: si l'écriture sur disque échoue.
     """
-    image = Image.open(io.BytesIO(source_bytes))
+    try:
+        image = Image.open(io.BytesIO(source_bytes))
+    except Exception as exc:
+        # Fournir un diagnostic lisible : magic bytes + preview texte
+        magic_hex = source_bytes[:16].hex() if len(source_bytes) >= 16 else source_bytes.hex()
+        preview = source_bytes[:200].decode("utf-8", errors="replace") if source_bytes else "(vide)"
+        # Détection HTML (page d'erreur Gallica, CAPTCHA, redirect viewer…)
+        hint = ""
+        if source_bytes[:5] in (b"<!DOC", b"<html", b"<HTML"):
+            hint = (
+                " La réponse est une page HTML — l'URL pointe probablement vers le viewer "
+                "Gallica plutôt que vers une image directe. "
+                "Utilisez une URL IIIF Image API (…/full/max/0/default.jpg)."
+            )
+        raise ValueError(
+            f"Impossible d'ouvrir l'image : {exc}.{hint} "
+            f"Magic bytes : {magic_hex}. Début de la réponse : {preview!r}"
+        ) from exc
 
     # Convertir en RGB pour garantir un JPEG valide (PNG RGBA, palette, etc.)
     if image.mode != "RGB":
