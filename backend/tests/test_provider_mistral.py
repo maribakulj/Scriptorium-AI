@@ -181,7 +181,8 @@ def _setup_list_models(monkeypatch, models: list[_FakeModel]) -> None:
 
 
 def test_list_models_dynamic_returns_all_non_embed(monkeypatch):
-    """list_models() retourne tous les modèles sauf embeddings/modération."""
+    """list_models() retourne tous les modèles sauf embeddings/modération.
+    mistral-ocr-latest est toujours ajouté s'il n'est pas dans la liste dynamique."""
     _setup_list_models(monkeypatch, [
         _FakeModel("pixtral-large-latest", vision=True),
         _FakeModel("pixtral-12b-2409", vision=True),
@@ -194,9 +195,10 @@ def test_list_models_dynamic_returns_all_non_embed(monkeypatch):
     assert "pixtral-large-latest" in ids
     assert "pixtral-12b-2409" in ids
     assert "mistral-large-latest" in ids
+    assert "mistral-ocr-latest" in ids   # ajouté automatiquement
     assert "mistral-embed" not in ids
     assert "mistral-moderation" not in ids
-    assert len(models) == 3
+    assert len(models) == 4  # 3 filtres + OCR ajouté
 
 
 def test_list_models_vision_flag_from_capabilities(monkeypatch):
@@ -237,11 +239,12 @@ def test_list_models_fallback_when_api_fails(monkeypatch):
     monkeypatch.setitem(sys.modules, "mistralai", fake)
 
     models = MistralProvider().list_models()
-    # Fallback = _MISTRAL_FALLBACK_MODELS = 2 modèles Pixtral
-    assert len(models) == 2
+    # Fallback = _MISTRAL_FALLBACK_MODELS = Pixtral Large + 12B + mistral-ocr-latest
+    assert len(models) == 3
     ids = {m.model_id for m in models}
     assert "pixtral-large-latest" in ids
     assert "pixtral-12b-2409" in ids
+    assert "mistral-ocr-latest" in ids
 
 
 def test_list_models_raises_if_not_configured(monkeypatch):
@@ -374,3 +377,132 @@ def test_generate_content_empty_response(monkeypatch):
 
     result = MistralProvider().generate_content(b"img", "prompt", "pixtral-large-latest")
     assert result == ""
+
+
+# ---------------------------------------------------------------------------
+# generate_content() — chemin OCR dédié (mistral-ocr-latest)
+# ---------------------------------------------------------------------------
+
+def test_generate_content_ocr_uses_ocr_endpoint(monkeypatch):
+    """mistral-ocr-latest utilise client.ocr.process(), pas client.chat.complete()."""
+    monkeypatch.setenv("MISTRAL_API_KEY", "test-key")
+
+    ocr_calls: list[dict] = []
+    chat_calls: list = []
+
+    class _FakeOCRPage:
+        markdown = "Explicit liber primus..."
+
+    class _FakeOCRResponse:
+        pages = [_FakeOCRPage(), _FakeOCRPage()]
+
+    class _FakeOCR:
+        def process(self, *, model, document):
+            ocr_calls.append({"model": model, "document": document})
+            return _FakeOCRResponse()
+
+    class _FakeChat:
+        def complete(self, *, model, messages):
+            chat_calls.append(messages)
+
+    class _FakeMistral:
+        def __init__(self, api_key):
+            self.ocr = _FakeOCR()
+            self.chat = _FakeChat()
+            self.models = _FakeModelsAPI([])
+
+    fake = _types.ModuleType("mistralai")
+    fake.Mistral = _FakeMistral
+    monkeypatch.setitem(sys.modules, "mistralai", fake)
+
+    result = MistralProvider().generate_content(b"jpeg", "prompt", "mistral-ocr-latest")
+
+    # OCR endpoint appelé, pas chat
+    assert len(ocr_calls) == 1
+    assert len(chat_calls) == 0
+    assert ocr_calls[0]["model"] == "mistral-ocr-latest"
+    # Document doit être image_url avec data URI
+    doc = ocr_calls[0]["document"]
+    assert doc["type"] == "image_url"
+    assert doc["image_url"]["url"].startswith("data:image/jpeg;base64,")
+    # Résultat = pages concaténées
+    assert "Explicit liber primus..." in result
+
+
+def test_generate_content_ocr_concatenates_pages(monkeypatch):
+    """OCR multi-pages : les markdowns sont concaténés par double saut de ligne."""
+    monkeypatch.setenv("MISTRAL_API_KEY", "test-key")
+
+    class _Page:
+        def __init__(self, md):
+            self.markdown = md
+
+    class _FakeOCRResponse:
+        pages = [_Page("Page 1 texte"), _Page("Page 2 texte")]
+
+    class _FakeOCR:
+        def process(self, **kwargs):
+            return _FakeOCRResponse()
+
+    class _FakeMistral:
+        def __init__(self, api_key):
+            self.ocr = _FakeOCR()
+            self.models = _FakeModelsAPI([])
+
+    fake = _types.ModuleType("mistralai")
+    fake.Mistral = _FakeMistral
+    monkeypatch.setitem(sys.modules, "mistralai", fake)
+
+    result = MistralProvider().generate_content(b"jpeg", "prompt", "mistral-ocr-latest")
+
+    assert "Page 1 texte" in result
+    assert "Page 2 texte" in result
+    assert "\n\n" in result
+
+
+def test_generate_content_ocr_model_not_called_for_vision(monkeypatch):
+    """Un modèle Pixtral NE passe PAS par l'endpoint OCR."""
+    monkeypatch.setenv("MISTRAL_API_KEY", "test-key")
+    ocr_called = []
+
+    class _FakeOCR:
+        def process(self, **kwargs):
+            ocr_called.append(True)
+
+    class _FakeMistral:
+        def __init__(self, api_key):
+            self.ocr = _FakeOCR()
+            self.chat = type("C", (), {"complete": lambda self, **k: _FakeChatResponse()})()
+            self.models = _FakeModelsAPI([])
+
+    fake = _types.ModuleType("mistralai")
+    fake.Mistral = _FakeMistral
+    monkeypatch.setitem(sys.modules, "mistralai", fake)
+
+    MistralProvider().generate_content(b"jpeg", "prompt", "pixtral-large-latest")
+    assert len(ocr_called) == 0
+
+
+def test_generate_content_ocr_model_detected_by_id(monkeypatch):
+    """Tout modèle contenant 'ocr' dans l'ID utilise l'endpoint OCR."""
+    monkeypatch.setenv("MISTRAL_API_KEY", "test-key")
+    ocr_called = []
+
+    class _FakeOCR:
+        def process(self, **kwargs):
+            ocr_called.append(True)
+            class R:
+                pages = []
+            return R()
+
+    class _FakeMistral:
+        def __init__(self, api_key):
+            self.ocr = _FakeOCR()
+            self.models = _FakeModelsAPI([])
+
+    fake = _types.ModuleType("mistralai")
+    fake.Mistral = _FakeMistral
+    monkeypatch.setitem(sys.modules, "mistralai", fake)
+
+    MistralProvider().generate_content(b"jpeg", "prompt", "mistral-ocr-latest")
+    assert len(ocr_called) == 1
