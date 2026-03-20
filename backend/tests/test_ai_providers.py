@@ -261,7 +261,46 @@ def test_vertex_key_provider_list_models_success(monkeypatch):
     assert len(models) == 1
     assert models[0].model_id == "models/gemini-2.0-flash"
     assert models[0].provider == ProviderType.VERTEX_API_KEY
-    MockClient.assert_called_once_with(api_key="fake-vertex-key")
+    # vertexai=True est obligatoire pour router vers aiplatform.googleapis.com
+    # (sans ça, le SDK route vers generativelanguage.googleapis.com → 403)
+    MockClient.assert_called_once_with(vertexai=True, api_key="fake-vertex-key")
+
+
+def test_vertex_key_provider_list_models_includes_gemini_without_methods(monkeypatch):
+    """Vertex peut retourner des modèles sans supported_generation_methods.
+    Si le nom contient 'gemini', on les inclut quand même."""
+    monkeypatch.setenv("VERTEX_API_KEY", "fake-vertex-key")
+    model_no_methods = _make_mock_model(
+        name="publishers/google/models/gemini-1.5-pro-002",
+        display_name="Gemini 1.5 Pro 002",
+        methods=[],
+    )
+    model_non_gemini = _make_mock_model(
+        name="publishers/google/models/text-bison",
+        display_name="Text Bison",
+        methods=[],
+    )
+
+    with patch("app.services.ai.provider_vertex_key.genai.Client") as MockClient:
+        MockClient.return_value.models.list.return_value = [model_no_methods, model_non_gemini]
+        models = VertexAPIKeyProvider().list_models()
+
+    assert len(models) == 1
+    assert "gemini" in models[0].model_id.lower()
+
+
+def test_vertex_key_provider_generate_content_uses_vertexai(monkeypatch):
+    """generate_content doit aussi utiliser vertexai=True."""
+    monkeypatch.setenv("VERTEX_API_KEY", "fake-vertex-key")
+
+    with patch("app.services.ai.provider_vertex_key.genai.Client") as MockClient:
+        with patch("app.services.ai.provider_vertex_key.types.Part.from_bytes") as mock_part:
+            mock_part.return_value = "fake-part"
+            MockClient.return_value.models.generate_content.return_value.text = "result"
+            result = VertexAPIKeyProvider().generate_content(b"img", "prompt", "gemini-2.0-flash")
+
+    MockClient.assert_called_once_with(vertexai=True, api_key="fake-vertex-key")
+    assert result == "result"
 
 
 # ---------------------------------------------------------------------------

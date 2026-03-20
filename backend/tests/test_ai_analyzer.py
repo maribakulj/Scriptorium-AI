@@ -198,7 +198,7 @@ def test_build_client_vertex_api_key(monkeypatch):
         mock_cls.return_value = MagicMock()
         client = build_client(ProviderType.VERTEX_API_KEY)
 
-    mock_cls.assert_called_once_with(api_key="fake-vertex-key")
+    mock_cls.assert_called_once_with(vertexai=True, api_key="fake-vertex-key")
     assert client is mock_cls.return_value
 
 

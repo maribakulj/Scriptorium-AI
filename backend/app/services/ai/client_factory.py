@@ -57,8 +57,12 @@ def build_client(provider_type: ProviderType) -> genai.Client:
             raise RuntimeError(
                 "Variable d'environnement manquante : VERTEX_API_KEY"
             )
-        logger.debug("Client Vertex AI (clé API) créé")
-        return genai.Client(api_key=api_key)
+        logger.debug("Client Vertex AI Express (clé API) créé")
+        # vertexai=True route vers aiplatform.googleapis.com (Vertex AI).
+        # Sans vertexai=True, le SDK route vers generativelanguage.googleapis.com
+        # (Gemini Developer API) qui rejette les clés Vertex Express avec 403.
+        # project/location sont omis : mutually exclusive avec api_key dans le SDK.
+        return genai.Client(vertexai=True, api_key=api_key)
 
     if provider_type == ProviderType.VERTEX_SERVICE_ACCOUNT:
         sa_json_str = os.environ.get("VERTEX_SERVICE_ACCOUNT_JSON")
